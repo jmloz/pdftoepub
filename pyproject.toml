@@ -1,0 +1,28 @@
+[project]
+name = "pdftoepub"
+version = "0.1.0"
+description = "Convierte libros PDF (sobre todo técnicos) a EPUB con agentes de IA"
+readme = "README.md"
+authors = [
+    { name = "jmloz", email = "jmlozhc@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=2.1.0",
+    "ebooklib>=0.20",
+    "lxml>=6.1.3",
+    "pygments>=2.21.0",
+    "pymupdf>=2.0",
+]
+
+[project.scripts]
+pdftoepub = "pdftoepub:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
