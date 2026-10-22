@@ -168,6 +168,7 @@ uv run pdftoepub libro.pdf --no-ai
 | `--diagrams` | `svg` | Diagramas vectoriales en `svg` (nítidos a cualquier tamaño) o `png`. |
 | `--no-ai` | — | Conversión básica determinista, sin agentes. |
 | `--estimate` | — | Solo estima los tokens que consumirá la conversión. |
+| `--status` | — | Muestra el progreso de una conversión en curso o interrumpida y sale. |
 | `--lang` | auto | Idioma de la interfaz: `en` o `es` ([ver abajo](#idioma-de-la-interfaz)). |
 
 ## Idioma de la interfaz
@@ -278,11 +279,26 @@ separan e identifican, y la sangría del código se conserva.
 
 ## Reanudar y corregir una conversión
 
+Durante la conversión, cada bloque terminado muestra el progreso total y una estimación
+del tiempo restante:
+
+```
+  [45/254 bloques · 17% · quedan ~1h 12m] págs. 101-106
+```
+
+Desde otra terminal (o tras una interrupción) puedes consultarlo cuando quieras:
+
+```bash
+uv run pdftoepub libro.pdf --status
+# 45/254 bloques · 17% · quedan ~1h 12m · última actualización hace 1m
+```
+
 Todo el trabajo intermedio se guarda en una carpeta junto al EPUB (`libro.work/`):
 
 ```
 libro.work/
 ├── profile.json     # análisis del libro (metadatos y capítulos)
+├── progress.json    # bloques hechos / total, lo usa --status
 ├── chunks/         # XHTML de cada bloque ya convertido
 ├── images/         # imágenes y diagramas extraídos
 └── cover.png

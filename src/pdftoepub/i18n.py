@@ -113,6 +113,31 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "[Pages {a}–{b}: basic conversion without AI]",
         "es": "[Páginas {a}–{b}: conversión básica sin IA]",
     },
+    "run.progress": {
+        "en": "  [{done}/{total} chunks · {percent}%{eta}] pages {a}-{b}",
+        "es": "  [{done}/{total} bloques · {percent}%{eta}] págs. {a}-{b}",
+    },
+    "run.eta": {"en": " · ~{time} left", "es": " · quedan ~{time}"},
+    "run.resuming": {
+        "en": "  Resuming: {done} of {total} chunks were already done.",
+        "es": "  Reanudando: {done} de {total} bloques ya estaban hechos.",
+    },
+    "status.none": {
+        "en": "No conversion in progress in {path}.",
+        "es": "No hay ninguna conversión en curso en {path}.",
+    },
+    "status.line": {
+        "en": "{done}/{total} chunks · {percent}%{eta} · last update {ago} ago",
+        "es": "{done}/{total} bloques · {percent}%{eta} · última actualización hace {ago}",
+    },
+    "status.finished": {
+        "en": "Conversion finished ({total} chunks).",
+        "es": "Conversión terminada ({total} bloques).",
+    },
+    "cli.status": {
+        "en": "show the progress of a conversion (running or interrupted) and exit",
+        "es": "mostrar el progreso de una conversión (en curso o interrumpida) y salir",
+    },
     "run.assembling": {"en": "· Assembling EPUB…", "es": "· Ensamblando EPUB…"},
     "run.done": {"en": "✔ EPUB created: {path}", "es": "✔ EPUB generado: {path}"},
     "run.usage": {

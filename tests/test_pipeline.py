@@ -273,3 +273,29 @@ def test_verifier_accepts_ligature_characters():
     page = Page(1, "Use a StringBuﬀer to build the ﬁnal string eﬃciently.")
     fixed = "<p>Use a <code>StringBuffer</code> to build the final string efficiently.</p>"
     assert verifier.check(fixed, [page], set()) == []
+
+
+def test_progress_and_status(tmp_path, capsys):
+    from pdftoepub.pipeline import format_duration, read_status
+
+    i18n.set_language("en")
+    pdf = tmp_path / "book.pdf"
+    make_pdf(pdf)
+    work = tmp_path / "book.work"
+    assert "No conversion" in read_status(work)
+
+    Converter(pdf, tmp_path / "book.epub", Options(pages_per_chunk=1), FakeEngine()).run()
+    log = capsys.readouterr().err
+    assert "[1/4 chunks · 25%" in log and "[4/4 chunks · 100%" in log
+    progress = json.loads((work / "progress.json").read_text())
+    assert progress["finished"] and progress["done"] == progress["total"] == 4
+    assert read_status(work) == "Conversion finished (4 chunks)."
+
+    # Interrupted conversion: resuming reports what was already done.
+    (work / "progress.json").unlink()
+    next(work.glob("chunks/ch002_*")).unlink()
+    assert "3/4 chunks · 75%" in read_status(work, pages_per_chunk=1)  # estimated without progress.json
+    Converter(pdf, tmp_path / "book.epub", Options(pages_per_chunk=1), FakeEngine()).run()
+    assert "Resuming: 3 of 4 chunks" in capsys.readouterr().err
+
+    assert format_duration(20) == "<1m" and format_duration(600) == "10m" and format_duration(4500) == "1h 15m"

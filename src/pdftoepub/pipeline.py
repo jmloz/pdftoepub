@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,83 @@ def _chunks(pages: list[Page], size: int) -> list[list[Page]]:
     return chunks
 
 
+def format_duration(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "<1m"
+    return f"{minutes // 60}h {minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m"
+
+
+class Progress:
+    """Counts finished chunks, logs the percentage and saves it to progress.json.
+
+    The ETA only uses chunks converted in this run (cached ones are instant).
+    """
+
+    def __init__(self, path: Path, total: int, done: int):
+        self.path = path
+        self.total = max(total, 1)
+        self.done = done
+        self.converted = 0
+        self.started = time.time()
+        self._lock = threading.Lock()
+        self._save(finished=False)
+
+    def eta(self) -> float | None:
+        if not self.converted:
+            return None
+        return (time.time() - self.started) / self.converted * (self.total - self.done)
+
+    def advance(self, cached: bool, a: int, b: int) -> None:
+        with self._lock:
+            self.done += 1
+            if not cached:
+                self.converted += 1
+            self._save(finished=False)
+            eta = self.eta()
+            log(t("run.progress", done=self.done, total=self.total, percent=self.done * 100 // self.total,
+                  eta=t("run.eta", time=format_duration(eta)) if eta is not None else "", a=a, b=b))
+
+    def finish(self) -> None:
+        with self._lock:
+            self.done = self.total
+            self._save(finished=True)
+
+    def _save(self, finished: bool) -> None:
+        eta = self.eta()
+        self.path.write_text(json.dumps({
+            "done": self.done, "total": self.total, "percent": self.done * 100 // self.total,
+            "eta_seconds": None if eta is None else round(eta), "updated": time.time(), "finished": finished,
+        }))
+
+
+def read_status(work_dir: Path, pages_per_chunk: int = 6) -> str:
+    """Human-readable progress of a conversion, read from its work folder."""
+    path = work_dir / "progress.json"
+    if not path.exists():
+        return _estimate_status(work_dir, pages_per_chunk)
+    p = json.loads(path.read_text())
+    if p["finished"]:
+        return t("status.finished", total=p["total"])
+    eta = t("run.eta", time=format_duration(p["eta_seconds"])) if p.get("eta_seconds") is not None else ""
+    return t("status.line", done=p["done"], total=p["total"], percent=p["percent"], eta=eta,
+             ago=format_duration(time.time() - p["updated"]))
+
+
+def _estimate_status(work_dir: Path, pages_per_chunk: int) -> str:
+    """Approximate progress when there is no progress.json (conversions started by older versions)."""
+    profile_path = work_dir / "profile.json"
+    if not profile_path.exists():
+        return t("status.none", path=work_dir)
+    chapters = json.loads(profile_path.read_text())["chapters"]
+    total = max(1, sum(-(-(c["end_page"] - c["start_page"] + 1) // pages_per_chunk)
+                       for c in chapters if not c["skip"]))
+    files = list((work_dir / "chunks").glob("*.html"))
+    done = min(len(files), total)
+    ago = format_duration(time.time() - max((f.stat().st_mtime for f in files), default=profile_path.stat().st_mtime))
+    return t("status.line", done=done, total=total, percent=done * 100 // total, eta="", ago=ago)
+
+
 class Converter:
     def __init__(self, pdf: Path, output: Path, options: Options, engine: Engine | None):
         self.pdf = pdf
@@ -69,6 +147,7 @@ class Converter:
         self.image_dir = self.work_dir / "images"
         self.chunk_dir = self.work_dir / "chunks"
         self.chunk_dir.mkdir(parents=True, exist_ok=True)
+        self.progress: Progress | None = None
 
     # -- steps ---------------------------------------------------------------
 
@@ -99,14 +178,20 @@ class Converter:
         pages = [p for p in doc.pages if chapter.start <= p.number <= chapter.end]
         fragments: list[str] = []
         for chunk in _chunks(pages, self.opt.pages_per_chunk):
+            cached = self._cache_path(i, chunk).exists()
             fragments.extend(self._convert_chunk(i, chapter, chunk, profile, fragments, chunk[0].number == chapter.start))
+            if self.progress:
+                self.progress.advance(cached, chunk[0].number, chunk[-1].number)
         log(t("run.chapter_done", i=i, title=chapter.title))
         return fragments
 
+    def _cache_path(self, i: int, pages: list[Page]) -> Path:
+        # The math mode changes the agent's output, so it is part of the cache key.
+        return self.chunk_dir / f"ch{i:03d}_p{pages[0].number:04d}-{pages[-1].number:04d}.{self.opt.math}.html"
+
     def _convert_chunk(self, i, chapter, pages, profile, previous, chapter_start) -> list[str]:
         a, b = pages[0].number, pages[-1].number
-        # The math mode changes the agent's output, so it is part of the cache key.
-        cache = self.chunk_dir / f"ch{i:03d}_p{a:04d}-{b:04d}.{self.opt.math}.html"
+        cache = self._cache_path(i, pages)
         if cache.exists():
             return [cache.read_text()]
 
@@ -172,7 +257,13 @@ class Converter:
         profile = self.profile(doc)
         active = [c for c in profile.chapters if not c.skip]
         log(t("run.book", title=profile.title, n=len(active), subject=profile.subject or t("run.no_subject")))
+        plan = [(i, chunk) for i, c in enumerate(profile.chapters, 1) if not c.skip
+                for chunk in _chunks([p for p in doc.pages if c.start <= p.number <= c.end], self.opt.pages_per_chunk)]
+        done = sum(self._cache_path(i, chunk).exists() for i, chunk in plan)
+        self.progress = Progress(self.work_dir / "progress.json", len(plan), done)
         log(t("run.layout"))
+        if done:
+            log(t("run.resuming", done=done, total=len(plan)))
 
         results: dict[int, list[str] | None] = {}
         with ThreadPoolExecutor(max_workers=max(1, self.opt.parallel)) as pool:
@@ -181,6 +272,7 @@ class Converter:
             for future in as_completed(futures):
                 results[futures[future]] = future.result()
 
+        self.progress.finish()
         log(t("run.assembling"))
         final = []
         for i, chapter in enumerate(profile.chapters, 1):

@@ -19,7 +19,7 @@ def main() -> None:
     i18n.set_language(i18n.detect(sys.argv[1:]))
 
     from .llm import DEFAULT_MODEL, ENGINES, PRICES, EngineError
-    from .pipeline import Converter, Options, estimate
+    from .pipeline import Converter, Options, estimate, read_status
 
     ap = argparse.ArgumentParser(prog="pdftoepub", description=t("cli.description"))
     ap.add_argument("pdf", type=Path, help=t("cli.pdf"))
@@ -37,6 +37,7 @@ def main() -> None:
     ap.add_argument("--diagrams", default="svg", choices=["svg", "png"], help=t("cli.diagrams"))
     ap.add_argument("--no-ai", action="store_true", help=t("cli.no_ai"))
     ap.add_argument("--estimate", action="store_true", help=t("cli.estimate"))
+    ap.add_argument("--status", action="store_true", help=t("cli.status"))
     ap.add_argument("--lang", choices=i18n.LANGUAGES, help=t("cli.lang"))
     args = ap.parse_args()
 
@@ -53,6 +54,10 @@ def main() -> None:
         math=args.math,
         diagrams=args.diagrams,
     )
+
+    if args.status:
+        print(read_status(output.with_suffix(".work"), args.pages_per_chunk))
+        return
 
     if args.estimate:
         print(estimate(args.pdf, options))

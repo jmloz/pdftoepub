@@ -172,6 +172,7 @@ uv run pdftoepub book.pdf --lang es
 | `--diagrams` | `svg` | Vector diagrams as `svg` (sharp at any size) or `png`. |
 | `--no-ai` | — | Basic deterministic conversion, no agents. |
 | `--estimate` | — | Only estimate the tokens the conversion will use. |
+| `--status` | — | Show the progress of a running or interrupted conversion and exit. |
 | `--lang` | auto | Interface language: `en` or `es` ([see below](#interface-language)). |
 
 ## Interface language
@@ -276,11 +277,26 @@ are separated and identified, and the code indentation is preserved.
 
 ## Resuming and fixing a conversion
 
+While converting, every finished chunk prints the overall progress and an estimate of the
+time left:
+
+```
+  [45/254 chunks · 17% · ~1h 12m left] pages 101-106
+```
+
+From another terminal (or after an interruption) you can check it at any time:
+
+```bash
+uv run pdftoepub book.pdf --status
+# 45/254 chunks · 17% · ~1h 12m left · last update 1m ago
+```
+
 All intermediate work is saved in a folder next to the EPUB (`book.work/`):
 
 ```
 book.work/
 ├── profile.json    # book analysis (metadata and chapters)
+├── progress.json   # chunks done / total, used by --status
 ├── chunks/         # XHTML of every converted chunk
 ├── images/         # extracted images and diagrams
 └── cover.png
