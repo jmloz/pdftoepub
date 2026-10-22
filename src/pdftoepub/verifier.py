@@ -36,6 +36,28 @@ def _source_text(pages: list[Page]) -> str:
     return re.sub(r"(\w)-\n(\w)", r"\1\2", text)  # rejoin words hyphenated at line end
 
 
+LIGATURES = ("ffi", "ffl", "ff", "fi", "fl")
+
+
+def _ligature_variants(words: Counter) -> Counter:
+    """How output words look when a PDF loses its ligature glyphs on extraction.
+
+    Fonts without a Unicode mapping for "fi", "ff", "ffi"… drop them or leave a gap:
+    the agent writes "official" but the extracted source reads "oicial" or "o cial".
+    """
+    variants = Counter()
+    for word, n in words.items():
+        for lig in LIGATURES:
+            start = word.find(lig)
+            while start != -1:
+                before, after = word[:start], word[start + len(lig):]
+                for variant in (before + after, before, after):
+                    if len(variant) >= 3 and variant != word:
+                        variants[variant] += n
+                start = word.find(lig, start + 1)
+    return variants
+
+
 def parse(fragment: str) -> etree._Element:
     """Strictly parse an XHTML fragment. Raises etree.XMLSyntaxError if malformed."""
     fragment = fragment.replace(CONTINUES_MARK, "")
@@ -74,6 +96,7 @@ def check(fragment: str, pages: list[Page], asset_ids: set[str]) -> list[str]:
     if text_pages:
         source = Counter(w.lower() for w in _WORD.findall(_source_text(text_pages)))
         target = Counter(w.lower() for w in _WORD.findall(output))
+        target += _ligature_variants(target)
         total = sum(source.values())
         if total:
             covered = sum(min(n, target[w]) for w, n in source.items())

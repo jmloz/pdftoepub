@@ -259,3 +259,11 @@ def test_layout_prompt_follows_math_mode():
     assert "\"formula\" assets" in agents.layout_system("image")
     for mode in ("mathml", "image"):
         assert "{" not in agents.layout_system(mode).replace("{}", "")
+
+
+def test_verifier_accepts_repaired_ligatures():
+    # The PDF lost its "ffi"/"ff" ligature glyphs: the source reads "o cial", "dierent".
+    page = Page(1, "This is an uno cial book. It shows a dierent and eective way to work with Java les.")
+    fixed = "<p>This is an unofficial book. It shows a different and effective way to work with Java files.</p>"
+    assert verifier.check(fixed, [page], set()) == []
+    assert verifier.check("<p>This is a book.</p>", [page], set())  # real losses are still caught
