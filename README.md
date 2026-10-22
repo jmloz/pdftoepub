@@ -33,6 +33,7 @@ de libros electrónicos.
 - [Limitaciones](#limitaciones)
 - [Solución de problemas](#solución-de-problemas)
 - [Privacidad y derechos de autor](#privacidad-y-derechos-de-autor)
+- [Licencia](#licencia)
 
 ---
 
@@ -257,9 +258,20 @@ libro.trabajo/
 
 ## Consumo y costes
 
-Con el motor por defecto (Claude Code) **no se cobra nada aparte**: el consumo se descuenta
-de la cuota de uso de tu plan de Claude. Al terminar, el programa muestra los tokens usados
-y su equivalente aproximado en precio de API como referencia.
+Con el motor por defecto (Claude Code) se paga como Claude Code esté configurado en tu equipo:
+
+| Cómo iniciaste sesión en Claude Code | Qué consume `pdftoepub` |
+|---|---|
+| Suscripción **Claude Pro / Max** | La **cuota de uso de tu plan**. No se cobra dinero aparte (salvo que tengas activado el uso adicional de pago). |
+| Cuenta de **Claude Console** (API) o `ANTHROPIC_API_KEY` en el entorno | **Dinero real**, por tokens, según los precios de la API. |
+
+Al terminar, el programa muestra los tokens usados y su **equivalente** en precio de API.
+Es solo una referencia: con una suscripción Pro/Max no se te cobra esa cantidad.
+
+> [!WARNING]
+> Si tienes la variable `ANTHROPIC_API_KEY` definida en tu terminal, Claude Code la usa
+> en lugar de tu suscripción y se factura por tokens. Para usar tu plan, quítala antes de
+> lanzar el programa: `unset ANTHROPIC_API_KEY`.
 
 Orientativamente, cada página cuesta unos 2.000–4.000 tokens de entrada (texto + imagen de
 la página) y una cantidad de salida similar al texto de la página. Un libro de 400 páginas
@@ -350,3 +362,7 @@ Para hacer una prueba real rápida con Claude Code: `uv run pdftoepub libro.pdf 
 - Usa esta herramienta solo con libros que tengas derecho a convertir (por ejemplo, para
   leer en tu propio lector un libro que has comprado). No distribuyas los EPUB generados
   de obras protegidas.
+
+## Licencia
+
+Distribuido bajo la licencia [MIT](LICENSE).

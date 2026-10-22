@@ -6,6 +6,8 @@ readme = "README.md"
 authors = [
     { name = "jmloz", email = "jmlozhc@gmail.com" }
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=2.1.0",
