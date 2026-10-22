@@ -6,6 +6,7 @@ If something fails, the chunk goes to the Reviewer agent together with the list 
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 
 from lxml import etree, html
@@ -94,7 +95,9 @@ def check(fragment: str, pages: list[Page], asset_ids: set[str]) -> list[str]:
     # Text coverage: are (almost) all of the original's words present?
     text_pages = [p for p in pages if not p.no_text]
     if text_pages:
-        source = Counter(w.lower() for w in _WORD.findall(_source_text(text_pages)))
+        # NFKC turns ligature characters such as "ﬀ" (U+FB00) into plain letters.
+        source_text = unicodedata.normalize("NFKC", _source_text(text_pages))
+        source = Counter(w.lower() for w in _WORD.findall(source_text))
         target = Counter(w.lower() for w in _WORD.findall(output))
         target += _ligature_variants(target)
         total = sum(source.values())

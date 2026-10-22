@@ -267,3 +267,9 @@ def test_verifier_accepts_repaired_ligatures():
     fixed = "<p>This is an unofficial book. It shows a different and effective way to work with Java files.</p>"
     assert verifier.check(fixed, [page], set()) == []
     assert verifier.check("<p>This is a book.</p>", [page], set())  # real losses are still caught
+
+
+def test_verifier_accepts_ligature_characters():
+    page = Page(1, "Use a StringBuﬀer to build the ﬁnal string eﬃciently.")
+    fixed = "<p>Use a <code>StringBuffer</code> to build the final string efficiently.</p>"
+    assert verifier.check(fixed, [page], set()) == []
