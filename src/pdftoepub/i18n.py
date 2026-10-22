@@ -39,6 +39,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "es": "no enviar la imagen de las páginas al modelo (más barato, peor con tablas y escaneos)",
     },
     "cli.no_highlight": {"en": "do not syntax-highlight code", "es": "no colorear la sintaxis del código"},
+    "cli.math": {
+        "en": "how to output formulas: mathml (sharp, scalable; default) or image (for readers without MathML, e.g. Kindle)",
+        "es": "cómo generar las fórmulas: mathml (nítidas y escalables; por defecto) o image (para lectores sin MathML, p. ej. Kindle)",
+    },
+    "cli.diagrams": {
+        "en": "format of vector diagrams: svg (sharp at any size; default) or png",
+        "es": "formato de los diagramas vectoriales: svg (nítidos a cualquier tamaño; por defecto) o png",
+    },
     "cli.no_ai": {"en": "basic conversion without AI (for testing)", "es": "conversión básica sin IA (para probar)"},
     "cli.estimate": {"en": "only estimate token usage and exit", "es": "solo estimar el consumo de tokens y salir"},
     "cli.lang": {"en": "interface language (en, es)", "es": "idioma de la interfaz (en, es)"},
@@ -63,6 +71,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "run.scanned": {
         "en": ", {n} pages without text (will be read with vision)",
         "es": ", {n} páginas sin texto (se leerán con visión)",
+    },
+    "run.columns": {
+        "en": "  {n} multi-column pages detected (text reordered into reading order)",
+        "es": "  {n} páginas a varias columnas detectadas (texto reordenado en orden de lectura)",
     },
     "run.scanned_no_vision": {
         "en": "  ! There are scanned pages and vision is disabled: those pages will be empty.",

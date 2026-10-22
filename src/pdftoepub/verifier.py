@@ -11,9 +11,10 @@ from collections import Counter
 from lxml import etree, html
 
 from .agents import CONTINUES_MARK
-from .extractor import CODE_MARK, Page
+from .extractor import BOX_CLOSE, BOX_OPEN, CODE_MARK, MATH_CLOSE, MATH_OPEN, Page
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"
+MATHML_NS = "http://www.w3.org/1998/Math/MathML"
 COVERAGE_THRESHOLD = 0.93
 MAX_MISSING_CODE = 0.03
 
@@ -28,7 +29,10 @@ def normalize(text: str) -> str:
 def _source_text(pages: list[Page]) -> str:
     text = "\n".join(p.text for p in pages)
     text = re.sub(r"^\[H[\d.]+\] ", "", text, flags=re.M)
-    text = text.replace("**", "").replace(CODE_MARK, "")
+    text = text.replace("**", "").replace(CODE_MARK, "").replace(BOX_OPEN, "").replace(BOX_CLOSE, "")
+    # Math-font text is often garbled in the PDF and becomes MathML or an image:
+    # it is not required to appear literally.
+    text = re.sub(f"{MATH_OPEN}.*?{MATH_CLOSE}", " ", text, flags=re.S)
     return re.sub(r"(\w)-\n(\w)", r"\1\2", text)  # rejoin words hyphenated at line end
 
 

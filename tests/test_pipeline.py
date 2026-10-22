@@ -10,7 +10,7 @@ import pytest
 
 from pdftoepub import agents, assembler, i18n, verifier
 from pdftoepub.agents import CONTINUES_MARK
-from pdftoepub.extractor import Page
+from pdftoepub.extractor import BOX_CLOSE, BOX_OPEN, MATH_CLOSE, MATH_OPEN, ExtractOptions, Page, extract
 from pdftoepub.pipeline import Converter, Options
 
 
@@ -175,3 +175,87 @@ def test_language_detection(monkeypatch):
 def test_every_message_has_both_languages():
     for key, texts in i18n.MESSAGES.items():
         assert set(texts) == set(i18n.LANGUAGES), key
+
+
+# ---------------------------------------------------------------------------
+# Complex layouts, vector diagrams and math
+# ---------------------------------------------------------------------------
+
+def make_complex_pdf(path: Path) -> None:
+    doc = pymupdf.open()
+    p = doc.new_page()
+    p.insert_text((72, 70), "Chapter 1. Two columns", fontname="hebo", fontsize=20)
+    p.insert_textbox(pymupdf.Rect(72, 100, 290, 300),
+                     "LEFT1 The left column starts here and continues with several lines of text. LEFT2 end.", fontsize=10)
+    p.insert_textbox(pymupdf.Rect(310, 100, 530, 300),
+                     "RIGHT1 The right column is read after the left one, with more lines. RIGHT2 end.", fontsize=10)
+    p.draw_rect(pymupdf.Rect(70, 320, 530, 400), color=(0, 0, 0))
+    p.insert_textbox(pymupdf.Rect(80, 330, 520, 395), "Note: this sidebar is framed.", fontsize=10)
+    p.insert_text((200, 440), "E = m c 2", fontname="symb", fontsize=12)  # Symbol = math font
+    p.insert_textbox(pymupdf.Rect(72, 460, 530, 520), "FULL Full-width body text below the formula.", fontsize=10)
+    for i in range(10):  # a diagram made of separate strokes
+        p.draw_line((100 + i * 30, 540), (130 + i * 25, 700), color=(0, 0, 1))
+    p.draw_circle((300, 620), 60, color=(1, 0, 0))
+    doc.save(path)
+
+
+def test_reading_order_frames_and_math(tmp_path):
+    pdf = tmp_path / "complex.pdf"
+    make_complex_pdf(pdf)
+    page = extract(pdf, tmp_path / "img").pages[0]
+    text = page.text
+    assert page.columns == 2
+    order = [text.index(w) for w in ("LEFT1", "LEFT2", "RIGHT1", "RIGHT2", "Note:", "FULL")]
+    assert order == sorted(order)  # left column fully before the right one
+    assert f"{BOX_OPEN}\nNote: this sidebar is framed." in text and BOX_CLOSE in text
+    assert f"{MATH_OPEN}E = m c 2{MATH_CLOSE}" in text
+
+
+def test_diagrams_svg_by_default_png_optional(tmp_path):
+    pdf = tmp_path / "complex.pdf"
+    make_complex_pdf(pdf)
+    svg = extract(pdf, tmp_path / "a").pages[0].assets
+    png = extract(pdf, tmp_path / "b", options=ExtractOptions(diagrams="png")).pages[0].assets
+    # One diagram (strokes merged), and the sidebar frame is not mistaken for one.
+    assert [(a.kind, Path(a.file).suffix) for a in svg] == [("diagram", ".svg")]
+    assert [(a.kind, Path(a.file).suffix) for a in png] == [("diagram", ".png")]
+    assert svg[0].width > 250  # covers all the strokes, not just the circle
+    assert pymupdf.open(tmp_path / "a" / svg[0].file).page_count == 1  # valid SVG
+
+
+def test_math_image_mode_exports_formulas(tmp_path):
+    pdf = tmp_path / "complex.pdf"
+    make_complex_pdf(pdf)
+    assets = extract(pdf, tmp_path / "img", options=ExtractOptions(math="image")).pages[0].assets
+    assert [a.kind for a in assets].count("formula") == 1
+
+
+def test_mathml_and_svg_in_epub(tmp_path):
+    (tmp_path / "images").mkdir()
+    (tmp_path / "images" / "vec_p1_1.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    body = assembler.merge_chunks([
+        '<h1>Physics</h1><p>Energy: <math alttext="E=mc^2"><mi>E</mi><mo>=</mo>'
+        '<mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math></p>'
+        '<figure><img src="vec_p1_1" alt="diagram"/></figure>'
+    ])
+    chapter = assembler.prepare_chapter("Physics", 1, body, "images", True, {"vec_p1_1": "vec_p1_1.svg"})
+    assert chapter.has_math
+    assert body.find(f".//{{{verifier.MATHML_NS}}}msup") is not None  # moved to the MathML namespace
+
+    profile = agents.Profile("Book", [], "en", "", "", "", [], "", [])
+    output = tmp_path / "book.epub"
+    assembler.build_epub(profile, [chapter], tmp_path / "images", None, output, True)
+    with zipfile.ZipFile(output) as z:
+        opf = z.read("EPUB/content.opf").decode()
+        xhtml = z.read("EPUB/ch001.xhtml").decode()
+    assert 'properties="mathml"' in opf
+    assert 'media-type="image/svg+xml"' in opf
+    assert 'xmlns="http://www.w3.org/1998/Math/MathML"' in xhtml
+    assert 'src="images/vec_p1_1.svg"' in xhtml
+
+
+def test_layout_prompt_follows_math_mode():
+    assert "MathML" in agents.layout_system("mathml") and "formula\" assets" not in agents.layout_system("mathml")
+    assert "\"formula\" assets" in agents.layout_system("image")
+    for mode in ("mathml", "image"):
+        assert "{" not in agents.layout_system(mode).replace("{}", "")

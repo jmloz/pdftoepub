@@ -33,6 +33,7 @@ e-book reader.
 - [Alternative engine: Anthropic API](#alternative-engine-anthropic-api)
 - [Project structure](#project-structure)
 - [Development and tests](#development-and-tests)
+- [Math, diagrams and complex layouts](#math-diagrams-and-complex-layouts)
 - [Limitations](#limitations)
 - [Troubleshooting](#troubleshooting)
 - [Privacy and copyright](#privacy-and-copyright)
@@ -64,6 +65,11 @@ plus automatic checks that make sure no content is lost.
   and figures correctly. Scanned PDFs are transcribed from the image.
 - ✅ **Automatic verification**: every chunk is checked (word coverage, code lines, valid XHTML);
   if something is missing, the Reviewer agent fixes it.
+- ➗ **Math**: formulas become MathML (sharp and scalable) or, for readers without MathML
+  such as Kindle, images with their LaTeX as alt text.
+- 📐 **Vector diagrams kept as SVG**: sharp at any zoom level, with PNG as a fallback.
+- 📰 **Complex layouts**: multi-column pages are read in the right order, and framed
+  sidebars, notes and warnings are kept together as boxes.
 - 🔗 **Continuity across pages**: paragraphs, lists, tables and code blocks split across pages are merged.
 - 📚 **Complete EPUB 3**: cover, metadata, navigable table of contents with chapters and sections,
   images and diagrams, and a stylesheet designed for e-readers (long code wraps instead of being cut).
@@ -162,6 +168,8 @@ uv run pdftoepub book.pdf --lang es
 | `--pages` | all | Convert only a page range, e.g. `1-40`. |
 | `--no-vision` | — | Don't send page images to the model (lower usage; worse with tables, figures and scans). |
 | `--no-highlight` | — | Code without syntax colors. |
+| `--math` | `mathml` | Formulas as `mathml` (sharp, scalable, searchable) or `image` (for readers without MathML, e.g. Kindle). |
+| `--diagrams` | `svg` | Vector diagrams as `svg` (sharp at any size) or `png`. |
 | `--no-ai` | — | Basic deterministic conversion, no agents. |
 | `--estimate` | — | Only estimate the tokens the conversion will use. |
 | `--lang` | auto | Interface language: `en` or `es` ([see below](#interface-language)). |
@@ -199,10 +207,17 @@ language of the original PDF.
 ```
 
 1. **Extractor** (`extractor.py`, no AI). Reads the PDF with PyMuPDF and produces *annotated*
-   text: lines in a monospaced font are marked as code and their indentation is rebuilt from
-   their horizontal position; lines larger than the body text are marked as likely headings;
-   repeated running headers, footers and page numbers are removed; images are exported and
-   vector diagrams are rasterized.
+   text in **reading order**:
+   - multi-column pages are detected: full-width elements (titles, figures) split the page
+     into bands, and inside each band columns that sit side by side are read left to right;
+   - text inside a drawn frame is kept together and marked as a box (sidebar, note, warning…);
+   - lines in a monospaced font are marked as code and their indentation is rebuilt from their
+     horizontal position (per column);
+   - text in a math font (Computer Modern math, STIX, Cambria Math, Symbol…) is marked as math;
+   - lines larger than the body text are marked as likely headings;
+   - repeated running headers, footers and page numbers are removed;
+   - images are exported, and vector diagrams (nearby strokes merged into one figure) are
+     exported as SVG, or PNG if the SVG would be too heavy.
 
 2. **Analyst agent**. Studies the PDF bookmarks, heading candidates and first pages, and
    produces the book's *profile*: title, authors, language, subject, code languages present,
@@ -211,7 +226,8 @@ language of the original PDF.
 3. **Layout agent**. For each chunk of pages it receives the image of those pages (PDF), the
    annotated text, the book profile and the end of the previous chunk. It returns semantic
    XHTML: full paragraphs, rejoined hyphenated words, `<pre><code class="language-…">` for
-   code, tables, lists, notes, keys, figures with alt text and footnotes. Its main rule is
+   code, tables, lists, notes, keys, figures with alt text, footnotes and formulas in MathML
+   (reading them from the page image, since math extracted from PDFs is often garbled). Its main rule is
    **fidelity**: it restructures, it never summarizes or rewrites.
 
 4. **Verifier** (`verifier.py`, no AI). Checks every chunk:
@@ -328,7 +344,7 @@ pdftoepub/
 ├── src/pdftoepub/
 │   ├── __init__.py     # command-line interface
 │   ├── pipeline.py     # coordinates the flow, cache and parallelism
-│   ├── extractor.py    # PDF reading (annotated text, images, diagrams)
+│   ├── extractor.py    # PDF reading (reading order, annotated text, images, SVG diagrams, math)
 │   ├── agents.py       # prompts and logic of the Analyst, Layout and Reviewer agents
 │   ├── verifier.py     # automatic quality checks
 │   ├── assembler.py    # chunk merging, highlighting and EPUB generation
@@ -351,19 +367,41 @@ uv run pytest
 The tests use a fake Claude and a fake `claude` executable, so they **use no plan
 allowance** and need no network. They cover the full flow (analysis → layout → review →
 EPUB), caching/resuming, merging chunks split across pages, the verifier, the Claude Code
-engine and the interface languages.
+engine, the interface languages, multi-column reading order, framed boxes, SVG diagrams
+and MathML.
 
 For a quick real test with Claude Code: `uv run pdftoepub book.pdf --pages 1-5`.
 
 To add a new interface message, add its key with both `en` and `es` texts to
 `MESSAGES` in `i18n.py` (a test checks that every message has both languages).
 
+## Math, diagrams and complex layouts
+
+**Math.** By default formulas are written as MathML, the EPUB 3 standard for math: they
+stay sharp at any size, follow the reader's font settings and keep their LaTeX source as
+`alttext` for screen readers. Apple Books, Kobo, Thorium and most modern readers display
+MathML. **Kindle** and some older readers don't: for them use `--math image`, which turns
+display formulas into images (SVG) with their LaTeX as alt text and writes simple inline
+math as text with italics and sub/superscripts.
+
+**Diagrams.** Vector drawings in the PDF (flowcharts, network diagrams, plots) are exported
+as SVG so they stay sharp when zoomed. Use `--diagrams png` if your reader has trouble
+with SVG images.
+
+**Complex layouts.** Multi-column pages are reordered into reading order before the agents
+see them, and the Layout agent also checks the order against the page image. Text inside
+drawn frames is kept together and turned into `<aside>` boxes (or code listings / tables
+when that's what the frame holds).
+
+Changing `--math` regenerates the chunks (it's part of the cache key); `--diagrams` only
+changes the exported images.
+
 ## Limitations
 
-- Complex **math formulas** are transcribed as text; no MathML is generated.
-- **Vector diagrams** become PNG images (they are not kept as vectors).
-- **Very complex layouts** (magazines, multiple columns with floating boxes) may require
-  reviewing `profile.json` or lowering `--pages-per-chunk`.
+- Math is detected by font: formulas set in a regular text font are not marked as math,
+  although the Layout agent often still recognizes them from the page image.
+- **Very unusual layouts** (magazines with text flowing around images, rotated text) may
+  still require reviewing `profile.json` or lowering `--pages-per-chunk`.
 - The original's **page numbers** disappear; references like "see page 42" are kept as text.
 - Password-protected PDFs are not supported.
 - The book keeps its original language (no translation).
@@ -379,6 +417,8 @@ To add a new interface message, add its key with both `en` and `es` texts to
 | A chunk looks wrong | Delete its file in `book.work/chunks/` and run again, maybe with `--pages-per-chunk 3`. |
 | `warnings remain after N reviews` | The chunk is included anyway; check it in the EPUB or regenerate it with more `--reviews`. |
 | Scanned pages are empty | Don't use `--no-vision`: those pages are read from the image. |
+| Formulas don't show on my reader (e.g. Kindle) | Convert again with `--math image`. |
+| Diagrams don't show | Convert again with `--diagrams png`. |
 
 ## Privacy and copyright
 

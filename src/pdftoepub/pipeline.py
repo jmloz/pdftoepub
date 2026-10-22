@@ -18,7 +18,7 @@ import pymupdf
 
 from . import agents, assembler, extractor, verifier
 from .agents import Chapter, Profile
-from .extractor import Document, Page
+from .extractor import Document, ExtractOptions, Page
 from .i18n import t
 from .llm import ClaudeCode, Engine, RefusedResponse, TruncatedResponse
 
@@ -34,6 +34,8 @@ class Options:
     reviews: int = 2
     syntax_highlight: bool = True
     page_range: tuple[int, int] | None = None
+    math: str = "mathml"  # "mathml" | "image"
+    diagrams: str = "svg"  # "svg" | "png"
 
 
 _log_lock = threading.Lock()
@@ -103,7 +105,8 @@ class Converter:
 
     def _convert_chunk(self, i, chapter, pages, profile, previous, chapter_start) -> list[str]:
         a, b = pages[0].number, pages[-1].number
-        cache = self.chunk_dir / f"ch{i:03d}_p{a:04d}-{b:04d}.html"
+        # The math mode changes the agent's output, so it is part of the cache key.
+        cache = self.chunk_dir / f"ch{i:03d}_p{a:04d}-{b:04d}.{self.opt.math}.html"
         if cache.exists():
             return [cache.read_text()]
 
@@ -127,7 +130,8 @@ class Converter:
         asset_ids = {asset.id for p in pages for asset in p.assets}
         previous_end = previous[-1] if previous else ""
         try:
-            xhtml = agents.layout(self.engine, profile, chapter, pages, pdf_bytes, previous_end, chapter_start)
+            xhtml = agents.layout(self.engine, profile, chapter, pages, pdf_bytes, previous_end, chapter_start,
+                                  self.opt.math)
             for attempt in range(self.opt.reviews + 1):
                 problems = verifier.check(xhtml, pages, asset_ids)
                 if not problems:
@@ -153,11 +157,15 @@ class Converter:
 
     def run(self) -> None:
         log(t("run.extracting", name=self.pdf.name))
-        doc = extractor.extract(self.pdf, self.image_dir, self.opt.page_range)
+        doc = extractor.extract(self.pdf, self.image_dir, self.opt.page_range,
+                                ExtractOptions(diagrams=self.opt.diagrams, math=self.opt.math))
         scanned = sum(p.no_text for p in doc.pages)
         log(t("run.extracted", pages=len(doc.pages), size=f"{doc.body_size:g}",
               images=sum(len(p.assets) for p in doc.pages))
             + (t("run.scanned", n=scanned) if scanned else ""))
+        multi = sum(p.columns > 1 for p in doc.pages)
+        if multi:
+            log(t("run.columns", n=multi))
         if scanned and (self.engine is None or not self.opt.vision):
             log(t("run.scanned_no_vision"))
 
@@ -180,7 +188,8 @@ class Converter:
             if not fragments:
                 continue
             body = assembler.merge_chunks(fragments)
-            final.append(assembler.prepare_chapter(chapter.title, i, body, "images", self.opt.syntax_highlight))
+            final.append(assembler.prepare_chapter(chapter.title, i, body, "images", self.opt.syntax_highlight,
+                                                   doc.asset_files()))
 
         cover = extractor.render_cover(self.pdf, self.work_dir / "cover.png")
         assembler.build_epub(profile, final, self.image_dir, cover, self.output, self.opt.syntax_highlight)

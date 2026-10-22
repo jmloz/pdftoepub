@@ -33,6 +33,8 @@ def main() -> None:
     ap.add_argument("--pages", type=_page_range, help=t("cli.pages"))
     ap.add_argument("--no-vision", action="store_true", help=t("cli.no_vision"))
     ap.add_argument("--no-highlight", action="store_true", help=t("cli.no_highlight"))
+    ap.add_argument("--math", default="mathml", choices=["mathml", "image"], help=t("cli.math"))
+    ap.add_argument("--diagrams", default="svg", choices=["svg", "png"], help=t("cli.diagrams"))
     ap.add_argument("--no-ai", action="store_true", help=t("cli.no_ai"))
     ap.add_argument("--estimate", action="store_true", help=t("cli.estimate"))
     ap.add_argument("--lang", choices=i18n.LANGUAGES, help=t("cli.lang"))
@@ -48,6 +50,8 @@ def main() -> None:
         reviews=args.reviews,
         syntax_highlight=not args.no_highlight,
         page_range=args.pages,
+        math=args.math,
+        diagrams=args.diagrams,
     )
 
     if args.estimate:

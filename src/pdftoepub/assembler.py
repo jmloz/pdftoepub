@@ -16,10 +16,12 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 
 from .agents import CONTINUES_MARK, Profile
-from .extractor import CODE_MARK, Page
-from .verifier import XHTML_NS, parse, repair
+from .extractor import BOX_CLOSE, BOX_OPEN, CODE_MARK, MATH_CLOSE, MATH_OPEN, Page
+from .verifier import MATHML_NS, XHTML_NS, parse, repair
 
 NS = f"{{{XHTML_NS}}}"
+MNS = f"{{{MATHML_NS}}}"
+MEDIA_TYPES = {".png": "image/png", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 PYGMENTS_STYLE = "friendly"
 
 BASE_CSS = """\
@@ -55,6 +57,9 @@ a.noteref { vertical-align: super; font-size: 0.75em; }
 dt { font-weight: bold; margin-top: 0.5em; }
 dd { margin-left: 1.5em; }
 .conversion-notice { color: #a00; font-style: italic; }
+math[display="block"] { display: block; margin: 0.8em auto; text-align: center; }
+p.formula { text-align: center; margin: 0.8em 0; }
+img.formula { max-width: 100%; vertical-align: middle; }
 """
 
 
@@ -64,6 +69,7 @@ class FinalChapter:
     file: str
     body: etree._Element
     sections: list[tuple[int, str, str]] = field(default_factory=list)  # (level, id, title)
+    has_math: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +171,26 @@ def highlight_code(body: etree._Element) -> None:
             code.append(child)
 
 
-def prepare_chapter(title: str, index: int, body: etree._Element, image_path: str, syntax_highlight: bool) -> FinalChapter:
+def normalize_mathml(body: etree._Element) -> bool:
+    """Put every <math> subtree in the MathML namespace. Returns True if there is math."""
+    found = False
+    for math in list(body.iter(f"{NS}math", f"{MNS}math")):
+        found = True
+        for el in math.iter():
+            if isinstance(el.tag, str) and el.tag.startswith(NS):
+                el.tag = MNS + el.tag[len(NS):]
+        # Rebuild the root with MathML as its default namespace, so it serializes as
+        # <math xmlns="…MathML"> instead of a prefixed <ns0:math> readers don't understand.
+        new = etree.Element(f"{MNS}math", attrib=dict(math.attrib), nsmap={None: MATHML_NS})
+        new.text, new.tail = math.text, math.tail
+        new.extend(list(math))
+        math.getparent().replace(math, new)
+    return found
+
+
+def prepare_chapter(title: str, index: int, body: etree._Element, image_path: str, syntax_highlight: bool,
+                    asset_files: dict[str, str] | None = None) -> FinalChapter:
+    asset_files = asset_files or {}
     file = f"ch{index:03d}.xhtml"
 
     if body.find(f".//{NS}h1") is None:
@@ -183,12 +208,14 @@ def prepare_chapter(title: str, index: int, body: etree._Element, image_path: st
         sections.append((int(h.tag[-1]), h.get("id"), _plain_text(h)))
 
     for img in body.iter(f"{NS}img"):
-        img.set("src", f"{image_path}/{img.get('src')}.png")
+        src = img.get("src", "")
+        img.set("src", f"{image_path}/{asset_files.get(src, src + '.png')}")
         img.set("alt", img.get("alt") or "")
 
+    has_math = normalize_mathml(body)
     if syntax_highlight:
         highlight_code(body)
-    return FinalChapter(title, file, body, sections)
+    return FinalChapter(title, file, body, sections, has_math)
 
 
 def basic_conversion(pages: list[Page], notice: str | None = None) -> str:
@@ -212,6 +239,10 @@ def basic_conversion(pages: list[Page], notice: str | None = None) -> str:
                 code.clear()
 
         for line in p.text.splitlines():
+            if line in (BOX_OPEN, BOX_CLOSE):
+                close_paragraph()
+                continue
+            line = line.replace(MATH_OPEN, "").replace(MATH_CLOSE, "")
             if line.startswith(CODE_MARK):
                 close_paragraph()
                 code.append(line[len(CODE_MARK):])
@@ -293,6 +324,8 @@ def build_epub(
             used.add(Path(img.get("src")).name)
         item = epub.EpubHtml(title=ch.title, file_name=ch.file, lang=profile.language)
         item.content = _body_html(ch)
+        if ch.has_math:
+            item.properties.append("mathml")
         item.add_item(stylesheet)
         book.add_item(item)
         items.append(item)
@@ -300,8 +333,9 @@ def build_epub(
     for name in sorted(used):
         path = image_dir / name
         if path.exists():
+            media_type = MEDIA_TYPES.get(path.suffix.lower(), "image/png")
             book.add_item(epub.EpubImage(uid=Path(name).stem, file_name=f"images/{name}",
-                                         media_type="image/png", content=path.read_bytes()))
+                                         media_type=media_type, content=path.read_bytes()))
 
     book.toc = _toc(chapters)
     book.add_item(epub.EpubNcx())

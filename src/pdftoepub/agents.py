@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .extractor import CODE_MARK, Asset, Document, Page
+from .extractor import BOX_CLOSE, BOX_OPEN, CODE_MARK, MATH_CLOSE, MATH_OPEN, Asset, Document, Page
 from .llm import Engine, pdf_block
 
 CONTINUES_MARK = "<!--CONTINUES-->"
@@ -196,10 +196,19 @@ title in <p class="aside-title">.
 "diagram" assets are areas with vector drawings: use them only if they really are a diagram, \
 chart or figure in the PDF; ignore them if they are table borders, code boxes or ornaments \
 (in that case rebuild the table or code as text). Write alt text in the book's language.
+- Text between {box_open} and {box_close} sits inside a drawn frame in the PDF: it is usually \
+a sidebar, note, tip or warning (use <aside>), but it can also be a framed code listing \
+(use <pre><code>) or a table (use <table>). Decide from the PDF.
+- Pages marked as multi-column: the extracted text already follows the reading order \
+(left column first). Check it against the PDF and never interleave lines from different columns.
 - If a page has no extracted text (scanned), transcribe it from the PDF.
 - Footnotes: place them at the end of the chunk in <aside class="footnote" id="fn-N"> and \
 link them with <a href="#fn-N" class="noteref">N</a>.
 - Cross-references like "see page 42": keep the text as is.
+
+Mathematics (text between {math_open} and {math_close} was set in a math font; use the PDF to \
+read the formula exactly, since extracted math symbols are often garbled):
+{math_rules}
 
 Continuity between chunks:
 - You are given the end of the previous chunk. If these pages start in the middle of a \
@@ -211,13 +220,39 @@ with {continues} followed by the continuing element (<p>…</p>, <pre><code …>
 Answer format: only the XHTML fragment (no <html>, <head> or <body>, no Markdown, no ```), \
 well-formed: closed tags, self-closing <br/> and <img …/>, and &amp; &lt; &gt; escaped \
 (especially inside <code>).
-""".replace("{continues}", CONTINUES_MARK)
+"""
+
+MATH_RULES = {
+    "mathml": """\
+- Write every formula, inline or display, as presentation MathML: \
+<math xmlns="http://www.w3.org/1998/Math/MathML" alttext="LaTeX of the formula">…</math>. \
+Add display="block" for display formulas (on their own line). Use <mi>, <mn>, <mo>, <mfrac>, \
+<msup>, <msub>, <msubsup>, <msqrt>, <mroot>, <munderover>, <mrow>, <mtable>, etc. \
+Keep the original numbering of equations, e.g. "(3.2)", as text next to the formula.
+- Simple variables inside prose (a single letter such as x or n) may also be MathML <math><mi>x</mi></math>.""",
+    "image": """\
+- Display formulas (on their own line) are available as "formula" assets: insert them with \
+<img class="formula" src="ID" alt="LaTeX of the formula"/> inside a <p class="formula">. \
+Keep the original equation numbering as text next to it.
+- Inline formulas inside prose: write them as HTML text, with <i> for variables and \
+<sub>/<sup> for indices and exponents (e.g. <i>x</i><sup>2</sup>).""",
+}
+
+
+def layout_system(math_mode: str = "mathml") -> str:
+    return (LAYOUT_SYSTEM
+            .replace("{continues}", CONTINUES_MARK)
+            .replace("{box_open}", BOX_OPEN).replace("{box_close}", BOX_CLOSE)
+            .replace("{math_open}", MATH_OPEN).replace("{math_close}", MATH_CLOSE)
+            .replace("{math_rules}", MATH_RULES[math_mode]))
 
 
 def _pages_text(pages: list[Page]) -> str:
     parts = []
     for p in pages:
         note = " (no extractable text: transcribe it from the PDF)" if p.no_text else ""
+        if p.columns > 1:
+            note += f" ({p.columns} columns, text given in reading order)"
         parts.append(f"=== Page {p.number}{note} ===\n{p.text}")
     return "\n\n".join(parts)
 
@@ -236,6 +271,7 @@ def layout(
     pdf_bytes: bytes | None,
     previous_end: str,
     chapter_start: bool,
+    math_mode: str = "mathml",
 ) -> str:
     assets = [a for p in pages for a in p.assets]
     text = f"""\
@@ -254,7 +290,8 @@ This chunk is pages {pages[0].number}–{pages[-1].number}. \
 {_asset_list(assets)}
 
 ## Extracted, annotated text
-('{CODE_MARK}' = line in a monospaced font; [Hn] = line in n pt type, likely a heading; **x** = bold)
+('{CODE_MARK}' = line in a monospaced font; [Hn] = line in n pt type, likely a heading; **x** = bold;
+{MATH_OPEN}…{MATH_CLOSE} = math font; {BOX_OPEN}…{BOX_CLOSE} = inside a drawn frame)
 
 {_pages_text(pages)}
 """
@@ -262,7 +299,7 @@ This chunk is pages {pages[0].number}–{pages[-1].number}. \
     if pdf_bytes:
         content.append(pdf_block(pdf_bytes))
     content.append({"type": "text", "text": text})
-    return clean_output(engine.ask(LAYOUT_SYSTEM, content))
+    return clean_output(engine.ask(layout_system(math_mode), content))
 
 
 def clean_output(xhtml: str) -> str:
@@ -288,6 +325,7 @@ corrected, complete XHTML fragment.
 <pre><code class="language-XXX">.
 - Do not summarize or rewrite what is already correct; fix only what is needed.
 - Keep the book's original language; never translate.
+- Keep formulas in the same form as the rest of the fragment (MathML or formula images).
 - Keep the {continues} mark at the start if it was there.
 - Answer only with the corrected, well-formed XHTML fragment, without Markdown.
 """.replace("{continues}", CONTINUES_MARK)

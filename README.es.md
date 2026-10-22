@@ -33,6 +33,7 @@ de libros electrónicos.
 - [Motor alternativo: API de Anthropic](#motor-alternativo-api-de-anthropic)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Desarrollo y pruebas](#desarrollo-y-pruebas)
+- [Matemáticas, diagramas y maquetaciones complejas](#matemáticas-diagramas-y-maquetaciones-complejas)
 - [Limitaciones](#limitaciones)
 - [Solución de problemas](#solución-de-problemas)
 - [Privacidad y derechos de autor](#privacidad-y-derechos-de-autor)
@@ -63,6 +64,11 @@ opciones) y comprobaciones automáticas que garantizan que no se pierde contenid
   y figuras correctamente. Los PDF escaneados se transcriben desde la imagen.
 - ✅ **Verificación automática**: cada bloque se comprueba (cobertura de palabras, líneas de código,
   XHTML válido); si falta algo, el agente Revisor lo corrige.
+- ➗ **Matemáticas**: las fórmulas se convierten en MathML (nítidas y escalables) o, para lectores
+  sin MathML como Kindle, en imágenes con su LaTeX como texto alternativo.
+- 📐 **Diagramas vectoriales en SVG**: nítidos con cualquier zoom, con PNG como alternativa.
+- 📰 **Maquetaciones complejas**: las páginas a varias columnas se leen en el orden correcto, y los
+  recuadros, notas y advertencias enmarcados se mantienen juntos.
 - 🔗 **Continuidad entre páginas**: párrafos, listas, tablas y bloques de código partidos entre páginas se unen.
 - 📚 **EPUB 3 completo**: portada, metadatos, índice navegable con capítulos y secciones, imágenes y diagramas,
   hoja de estilos pensada para lectores (el código largo se ajusta en vez de cortarse).
@@ -158,6 +164,8 @@ uv run pdftoepub libro.pdf --no-ai
 | `--pages` | todo | Convierte solo un rango de páginas, p. ej. `1-40`. |
 | `--no-vision` | — | No envía la imagen de las páginas al modelo (menos consumo; peor con tablas, figuras y escaneos). |
 | `--no-highlight` | — | Código sin colores de sintaxis. |
+| `--math` | `mathml` | Fórmulas en `mathml` (nítidas, escalables y buscables) o `image` (para lectores sin MathML, p. ej. Kindle). |
+| `--diagrams` | `svg` | Diagramas vectoriales en `svg` (nítidos a cualquier tamaño) o `png`. |
 | `--no-ai` | — | Conversión básica determinista, sin agentes. |
 | `--estimate` | — | Solo estima los tokens que consumirá la conversión. |
 | `--lang` | auto | Idioma de la interfaz: `en` o `es` ([ver abajo](#idioma-de-la-interfaz)). |
@@ -196,10 +204,20 @@ El idioma de la interfaz **no** afecta al libro: el EPUB siempre conserva el idi
 ```
 
 1. **Extractor** (`extractor.py`, sin IA). Lee el PDF con PyMuPDF y genera un texto *anotado*:
-   las líneas en fuente monoespaciada se marcan como código y se reconstruye su sangría a
-   partir de la posición horizontal; las líneas con letra más grande que el cuerpo se marcan
-   como posibles títulos; se eliminan cabeceras, pies y números de página que se repiten;
-   se exportan las imágenes y se rasterizan los diagramas vectoriales.
+   el texto sale en **orden de lectura**:
+   - detecta las páginas a varias columnas: los elementos a todo el ancho (títulos, figuras)
+     dividen la página en franjas, y dentro de cada franja las columnas que están una al lado
+     de otra se leen de izquierda a derecha;
+   - el texto dentro de un marco dibujado se mantiene junto y se marca como recuadro (nota,
+     advertencia…);
+   - las líneas en fuente monoespaciada se marcan como código y se reconstruye su sangría a
+     partir de la posición horizontal (por columna);
+   - el texto en fuente matemática (Computer Modern, STIX, Cambria Math, Symbol…) se marca
+     como fórmula;
+   - las líneas con letra más grande que el cuerpo se marcan como posibles títulos;
+   - se eliminan cabeceras, pies y números de página que se repiten;
+   - se exportan las imágenes, y los diagramas vectoriales (uniendo los trazos cercanos en
+     una sola figura) se exportan como SVG, o como PNG si el SVG pesara demasiado.
 
 2. **Agente Analista**. Estudia los marcadores del PDF, los posibles títulos y las primeras
    páginas, y produce el *perfil* del libro: título, autores, idioma, temática, lenguajes de
@@ -209,7 +227,9 @@ El idioma de la interfaz **no** afecta al libro: el EPUB siempre conserva el idi
 3. **Agente Maquetador**. Para cada bloque de páginas recibe la imagen de esas páginas (PDF),
    el texto anotado, el perfil del libro y el final del bloque anterior. Devuelve XHTML
    semántico: párrafos completos, palabras cortadas reparadas, `<pre><code class="language-…">`
-   para código, tablas, listas, notas, teclas, figuras con texto alternativo y notas al pie.
+   para código, tablas, listas, notas, teclas, figuras con texto alternativo, notas al pie y
+   fórmulas en MathML (leyéndolas de la imagen de la página, porque las fórmulas extraídas de
+   un PDF suelen salir corruptas).
    Su regla principal es la **fidelidad**: reestructura, nunca resume ni reescribe.
 
 4. **Verificador** (`verifier.py`, sin IA). Comprueba cada bloque:
@@ -325,7 +345,7 @@ pdftoepub/
 ├── src/pdftoepub/
 │   ├── __init__.py     # interfaz de línea de comandos
 │   ├── pipeline.py     # coordina el flujo, la caché y el paralelismo
-│   ├── extractor.py    # lectura del PDF (texto anotado, imágenes, diagramas)
+│   ├── extractor.py    # lectura del PDF (orden de lectura, texto anotado, imágenes, SVG, fórmulas)
 │   ├── agents.py       # prompts y lógica de los agentes Analista, Maquetador y Revisor
 │   ├── verifier.py     # comprobaciones automáticas de calidad
 │   ├── assembler.py    # unión de bloques, resaltado y generación del EPUB
@@ -351,18 +371,41 @@ uv run pytest
 Las pruebas usan un Claude simulado y un ejecutable `claude` falso, así que **no consumen
 cuota** ni necesitan conexión. Cubren el flujo completo (análisis → maquetación → revisión →
 EPUB), la caché/reanudación, la unión de bloques partidos entre páginas, el verificador, el
-motor de Claude Code y los idiomas de la interfaz.
+motor de Claude Code, los idiomas de la interfaz, el orden de lectura a varias columnas,
+los recuadros, los diagramas SVG y el MathML.
 
 Para hacer una prueba real rápida con Claude Code: `uv run pdftoepub libro.pdf --pages 1-5`.
 
 Para añadir un mensaje nuevo a la interfaz, añade su clave con los textos `en` y `es` a
 `MESSAGES` en `i18n.py` (un test comprueba que todos los mensajes tengan los dos idiomas).
 
+## Matemáticas, diagramas y maquetaciones complejas
+
+**Matemáticas.** Por defecto las fórmulas se escriben en MathML, el estándar de EPUB 3 para
+matemáticas: se ven nítidas a cualquier tamaño, siguen la configuración de letra del lector y
+guardan su LaTeX como `alttext` para los lectores de pantalla. Apple Books, Kobo, Thorium y la
+mayoría de lectores modernos muestran MathML. **Kindle** y algunos lectores antiguos no: para
+ellos usa `--math image`, que convierte las fórmulas destacadas en imágenes (SVG) con su LaTeX
+como texto alternativo y escribe las fórmulas sencillas dentro del texto con cursiva,
+subíndices y superíndices.
+
+**Diagramas.** Los dibujos vectoriales del PDF (diagramas de flujo, de red, gráficas) se
+exportan como SVG para que se vean nítidos al hacer zoom. Usa `--diagrams png` si tu lector
+tiene problemas con imágenes SVG.
+
+**Maquetaciones complejas.** Las páginas a varias columnas se reordenan en orden de lectura
+antes de que las vean los agentes, y el Maquetador además comprueba el orden con la imagen de
+la página. El texto dentro de marcos dibujados se mantiene junto y se convierte en recuadros
+`<aside>` (o en listados de código / tablas cuando eso es lo que contiene el marco).
+
+Cambiar `--math` regenera los bloques (forma parte de la clave de la caché); `--diagrams` solo
+cambia las imágenes exportadas.
+
 ## Limitaciones
 
-- **Fórmulas matemáticas** complejas se transcriben como texto; no se genera MathML.
-- **Diagramas vectoriales** se convierten en imágenes PNG (no se mantienen como vectores).
-- **Maquetaciones muy complejas** (revistas, varias columnas con recuadros flotantes) pueden
+- Las fórmulas se detectan por la fuente: las escritas con una fuente de texto normal no se
+  marcan como fórmula, aunque el Maquetador suele reconocerlas igualmente en la imagen de la página.
+- **Maquetaciones muy inusuales** (revistas con texto que rodea imágenes, texto girado) pueden
   requerir revisar `profile.json` o reducir `--pages-per-chunk`.
 - Los **números de página** del original desaparecen; las referencias tipo "véase la página 42"
   se conservan como texto.
@@ -380,6 +423,8 @@ Para añadir un mensaje nuevo a la interfaz, añade su clave con los textos `en`
 | Un bloque se ve mal | Borra su archivo en `libro.work/chunks/` y relanza, quizá con `--pages-per-chunk 3`. |
 | `quedan avisos tras N revisiones` | El bloque se incluye igualmente; revísalo en el EPUB o regenéralo con más `--reviews`. |
 | Páginas escaneadas vacías | No uses `--no-vision`: esas páginas se leen desde la imagen. |
+| Las fórmulas no se ven en mi lector (p. ej. Kindle) | Vuelve a convertir con `--math image`. |
+| Los diagramas no se ven | Vuelve a convertir con `--diagrams png`. |
 
 ## Privacidad y derechos de autor
 
