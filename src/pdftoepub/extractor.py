@@ -1,12 +1,12 @@
-"""Extracción determinista del PDF (sin IA).
+"""Deterministic PDF extraction (no AI).
 
-Convierte cada página en un texto anotado que conserva las pistas tipográficas
-que los agentes necesitan para reconstruir el libro con fidelidad:
+Turns each page into annotated text that keeps the typographic hints the agents
+need to rebuild the book faithfully:
 
-- Líneas en fuente monoespaciada  -> marcadas como código (`¦ `).
-- Líneas con fuente mayor que el cuerpo -> candidatas a título (`[T<tamaño>]`).
-- Imágenes rasterizadas y diagramas vectoriales -> exportados a PNG con un ID.
-- Cabeceras / pies de página repetidos -> eliminados.
+- Lines in a monospaced font     -> marked as code (`¦ `).
+- Lines larger than body text    -> heading candidates (`[H<size>]`).
+- Raster images and vector diagrams -> exported as PNG with an ID.
+- Repeated running headers / footers -> removed.
 """
 
 from __future__ import annotations
@@ -18,12 +18,14 @@ from pathlib import Path
 
 import pymupdf
 
-MARCA_CODIGO = "¦ "
-MIN_LADO_IMAGEN = 48  # px; descarta iconos, viñetas y adornos
-MIN_AREA_DIAGRAMA = 0.04  # fracción del área de la página
-ZONA_MARGEN = 0.08  # franja superior/inferior donde viven cabeceras y pies
+from .i18n import t
 
-FUENTES_MONO = re.compile(
+CODE_MARK = "¦ "
+MIN_IMAGE_SIDE = 48  # px; skips icons, bullets and ornaments
+MIN_DIAGRAM_AREA = 0.04  # fraction of the page area
+MARGIN_BAND = 0.08  # top/bottom band where running headers and footers live
+
+MONO_FONTS = re.compile(
     r"mono|courier|consol|menlo|inconsolata|source\s?code|code|fira\s?mono|"
     r"dejavu\s?sans\s?mono|liberation\s?mono|lucida\s?console|cmtt|sfmono|"
     r"roboto\s?mono|ubuntu\s?mono|jetbrains|hack|andale|letter\s?gothic|ocr",
@@ -32,203 +34,203 @@ FUENTES_MONO = re.compile(
 
 
 @dataclass
-class Recurso:
+class Asset:
     id: str
-    archivo: str  # nombre dentro de la carpeta de imágenes
-    pagina: int
-    tipo: str  # "imagen" | "diagrama"
-    ancho: int
-    alto: int
+    file: str  # file name inside the images folder
+    page: int
+    kind: str  # "image" | "diagram"
+    width: int
+    height: int
 
 
 @dataclass
-class Pagina:
-    numero: int  # 1-indexado
-    texto: str  # texto anotado
-    recursos: list[Recurso] = field(default_factory=list)
-    sin_texto: bool = False  # probablemente escaneada
+class Page:
+    number: int  # 1-based
+    text: str  # annotated text
+    assets: list[Asset] = field(default_factory=list)
+    no_text: bool = False  # probably scanned
 
     @property
-    def lineas_codigo(self) -> list[str]:
-        return [l[len(MARCA_CODIGO):] for l in self.texto.splitlines() if l.startswith(MARCA_CODIGO)]
+    def code_lines(self) -> list[str]:
+        return [l[len(CODE_MARK):] for l in self.text.splitlines() if l.startswith(CODE_MARK)]
 
 
 @dataclass
-class Documento:
-    ruta: Path
-    num_paginas: int
-    metadatos: dict
-    indice_pdf: list[tuple[int, str, int]]  # (nivel, título, página)
-    tamano_cuerpo: float
-    paginas: list[Pagina]
-    candidatos_titulo: list[tuple[int, float, str]]  # (página, tamaño, texto)
+class Document:
+    path: Path
+    page_count: int
+    metadata: dict
+    outline: list[tuple[int, str, int]]  # (level, title, page)
+    body_size: float
+    pages: list[Page]
+    heading_candidates: list[tuple[int, float, str]]  # (page, size, text)
 
 
-def _es_mono(span: dict) -> bool:
-    return bool(span["flags"] & pymupdf.TEXT_FONT_MONOSPACED) or bool(FUENTES_MONO.search(span["font"]))
+def _is_mono(span: dict) -> bool:
+    return bool(span["flags"] & pymupdf.TEXT_FONT_MONOSPACED) or bool(MONO_FONTS.search(span["font"]))
 
 
-def _normalizar_margen(texto: str) -> str:
-    return re.sub(r"\d+", "#", texto.strip().lower())
+def _normalize_margin(text: str) -> str:
+    return re.sub(r"\d+", "#", text.strip().lower())
 
 
-def _lineas(pagina: pymupdf.Page) -> list[dict]:
-    """Devuelve las líneas de texto de la página con su información tipográfica."""
-    datos = pagina.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)
-    alto = pagina.rect.height
-    lineas = []
-    for bloque in datos["blocks"]:
-        if bloque.get("type") != 0:
+def _lines(page: pymupdf.Page) -> list[dict]:
+    """Return the page's text lines with their typographic information."""
+    data = page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)
+    height = page.rect.height
+    lines = []
+    for block in data["blocks"]:
+        if block.get("type") != 0:
             continue
-        for linea in bloque["lines"]:
-            spans = [s for s in linea["spans"] if s["text"].strip()]
+        for line in block["lines"]:
+            spans = [s for s in line["spans"] if s["text"].strip()]
             if not spans:
                 continue
-            texto = "".join(s["text"] for s in linea["spans"]).rstrip()
-            caracteres = sum(len(s["text"]) for s in spans)
-            mono = sum(len(s["text"]) for s in spans if _es_mono(s)) / caracteres > 0.6
-            negrita = all(s["flags"] & pymupdf.TEXT_FONT_BOLD for s in spans)
-            tamano = max(s["size"] for s in spans)
-            y0, y1 = linea["bbox"][1], linea["bbox"][3]
-            lineas.append(
+            text = "".join(s["text"] for s in line["spans"]).rstrip()
+            chars = sum(len(s["text"]) for s in spans)
+            mono = sum(len(s["text"]) for s in spans if _is_mono(s)) / chars > 0.6
+            bold = all(s["flags"] & pymupdf.TEXT_FONT_BOLD for s in spans)
+            size = max(s["size"] for s in spans)
+            y0, y1 = line["bbox"][1], line["bbox"][3]
+            lines.append(
                 {
-                    "texto": texto,
-                    "x0": linea["bbox"][0],
+                    "text": text,
+                    "x0": line["bbox"][0],
                     "y0": y0,
                     "mono": mono,
-                    "negrita": negrita,
-                    "tamano": round(tamano, 1),
-                    "margen": y1 < alto * ZONA_MARGEN or y0 > alto * (1 - ZONA_MARGEN),
-                    "bloque": bloque["number"],
+                    "bold": bold,
+                    "size": round(size, 1),
+                    "margin": y1 < height * MARGIN_BAND or y0 > height * (1 - MARGIN_BAND),
+                    "block": block["number"],
                 }
             )
-    return lineas
+    return lines
 
 
-def _detectar_margenes_repetidos(todas: list[list[dict]]) -> set[str]:
-    """Textos que aparecen en el margen de muchas páginas: cabeceras, pies, nº de página."""
-    conteo = Counter()
-    for lineas in todas:
-        conteo.update({_normalizar_margen(l["texto"]) for l in lineas if l["margen"]})
-    umbral = max(3, len(todas) * 0.15)
-    repetidos = {t for t, n in conteo.items() if n >= umbral}
-    repetidos.add("#")  # números de página sueltos
-    return repetidos
+def _repeated_margins(all_lines: list[list[dict]]) -> set[str]:
+    """Text found in the margin of many pages: running headers, footers, page numbers."""
+    counts = Counter()
+    for lines in all_lines:
+        counts.update({_normalize_margin(l["text"]) for l in lines if l["margin"]})
+    threshold = max(3, len(all_lines) * 0.15)
+    repeated = {text for text, n in counts.items() if n >= threshold}
+    repeated.add("#")  # bare page numbers
+    return repeated
 
 
-def _exportar_recursos(doc: pymupdf.Document, pagina: pymupdf.Page, dir_img: Path) -> list[Recurso]:
-    recursos: list[Recurso] = []
-    n = pagina.number + 1
-    vistos: set[int] = set()
+def _export_assets(doc: pymupdf.Document, page: pymupdf.Page, image_dir: Path) -> list[Asset]:
+    assets: list[Asset] = []
+    n = page.number + 1
+    seen: set[int] = set()
 
-    for i, info in enumerate(pagina.get_images(full=True)):
+    for i, info in enumerate(page.get_images(full=True)):
         xref = info[0]
-        if xref in vistos:
+        if xref in seen:
             continue
-        vistos.add(xref)
+        seen.add(xref)
         try:
             pix = pymupdf.Pixmap(doc, xref)
-            if pix.width < MIN_LADO_IMAGEN or pix.height < MIN_LADO_IMAGEN:
+            if pix.width < MIN_IMAGE_SIDE or pix.height < MIN_IMAGE_SIDE:
                 continue
             if pix.n - pix.alpha >= 4:  # CMYK -> RGB
                 pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
-            rid = f"img_p{n}_{i + 1}"
-            archivo = f"{rid}.png"
-            pix.save(dir_img / archivo)
-            recursos.append(Recurso(rid, archivo, n, "imagen", pix.width, pix.height))
+            asset_id = f"img_p{n}_{i + 1}"
+            file = f"{asset_id}.png"
+            pix.save(image_dir / file)
+            assets.append(Asset(asset_id, file, n, "image", pix.width, pix.height))
         except Exception:
             continue
 
-    # Diagramas vectoriales: se rasterizan para no perderlos. El agente decide si
-    # son un diagrama real o simples bordes de tabla / recuadros de código.
-    area_pagina = pagina.rect.width * pagina.rect.height
+    # Vector diagrams are rasterized so they are not lost. The agent decides whether
+    # each one is a real diagram or just table borders / code boxes.
+    page_area = page.rect.width * page.rect.height
     try:
-        grupos = pagina.cluster_drawings()
+        clusters = page.cluster_drawings()
     except Exception:
-        grupos = []
-    for i, rect in enumerate(grupos):
-        if rect.width * rect.height < area_pagina * MIN_AREA_DIAGRAMA:
+        clusters = []
+    for i, rect in enumerate(clusters):
+        if rect.width * rect.height < page_area * MIN_DIAGRAM_AREA:
             continue
-        rid = f"vec_p{n}_{i + 1}"
-        archivo = f"{rid}.png"
-        pix = pagina.get_pixmap(clip=rect + (-4, -4, 4, 4), dpi=200)
-        pix.save(dir_img / archivo)
-        recursos.append(Recurso(rid, archivo, n, "diagrama", pix.width, pix.height))
-    return recursos
+        asset_id = f"vec_p{n}_{i + 1}"
+        file = f"{asset_id}.png"
+        pix = page.get_pixmap(clip=rect + (-4, -4, 4, 4), dpi=200)
+        pix.save(image_dir / file)
+        assets.append(Asset(asset_id, file, n, "diagram", pix.width, pix.height))
+    return assets
 
 
-def _anotar(lineas: list[dict], repetidos: set[str], tamano_cuerpo: float) -> str:
-    salida: list[str] = []
-    bloque_anterior = None
-    x_min_codigo = min((l["x0"] for l in lineas if l["mono"]), default=0)
-    for l in lineas:
-        if l["margen"] and _normalizar_margen(l["texto"]) in repetidos:
+def _annotate(lines: list[dict], repeated: set[str], body_size: float) -> str:
+    out: list[str] = []
+    previous_block = None
+    min_code_x = min((l["x0"] for l in lines if l["mono"]), default=0)
+    for l in lines:
+        if l["margin"] and _normalize_margin(l["text"]) in repeated:
             continue
-        if bloque_anterior is not None and l["bloque"] != bloque_anterior and not l["mono"]:
-            salida.append("")  # separa párrafos
-        bloque_anterior = l["bloque"]
+        if previous_block is not None and l["block"] != previous_block and not l["mono"]:
+            out.append("")  # paragraph break
+        previous_block = l["block"]
         if l["mono"]:
-            # Reconstruye la sangría del código a partir de la posición horizontal.
-            # (ancho de un carácter monoespaciado ≈ 0.6 × tamaño de letra)
-            sangria = max(0, round((l["x0"] - x_min_codigo) / (l["tamano"] * 0.6)))
-            salida.append(MARCA_CODIGO + " " * sangria + l["texto"])
-        elif l["tamano"] >= tamano_cuerpo * 1.15:
-            salida.append(f"[T{l['tamano']:g}] {l['texto'].strip()}")
-        elif l["negrita"]:
-            salida.append(f"**{l['texto'].strip()}**")
+            # Rebuild code indentation from the horizontal position
+            # (a monospaced character is ≈ 0.6 × the font size wide).
+            indent = max(0, round((l["x0"] - min_code_x) / (l["size"] * 0.6)))
+            out.append(CODE_MARK + " " * indent + l["text"])
+        elif l["size"] >= body_size * 1.15:
+            out.append(f"[H{l['size']:g}] {l['text'].strip()}")
+        elif l["bold"]:
+            out.append(f"**{l['text'].strip()}**")
         else:
-            salida.append(l["texto"].strip())
-    return "\n".join(salida).strip()
+            out.append(l["text"].strip())
+    return "\n".join(out).strip()
 
 
-def extraer(ruta_pdf: Path, dir_img: Path, rango: tuple[int, int] | None = None) -> Documento:
-    dir_img.mkdir(parents=True, exist_ok=True)
-    doc = pymupdf.open(ruta_pdf)
+def extract(pdf_path: Path, image_dir: Path, page_range: tuple[int, int] | None = None) -> Document:
+    image_dir.mkdir(parents=True, exist_ok=True)
+    doc = pymupdf.open(pdf_path)
     if doc.needs_pass:
-        raise ValueError("El PDF está protegido con contraseña.")
-    inicio, fin = rango or (1, doc.page_count)
-    fin = min(fin, doc.page_count)
-    indices = range(inicio - 1, fin)
+        raise ValueError(t("err.password"))
+    first, last = page_range or (1, doc.page_count)
+    last = min(last, doc.page_count)
+    indices = range(first - 1, last)
 
-    todas = [_lineas(doc[i]) for i in indices]
-    tamanos = Counter()
-    for lineas in todas:
-        for l in lineas:
+    all_lines = [_lines(doc[i]) for i in indices]
+    sizes = Counter()
+    for lines in all_lines:
+        for l in lines:
             if not l["mono"]:
-                tamanos[l["tamano"]] += len(l["texto"])
-    tamano_cuerpo = tamanos.most_common(1)[0][0] if tamanos else 10.0
-    repetidos = _detectar_margenes_repetidos(todas)
+                sizes[l["size"]] += len(l["text"])
+    body_size = sizes.most_common(1)[0][0] if sizes else 10.0
+    repeated = _repeated_margins(all_lines)
 
-    paginas: list[Pagina] = []
-    candidatos: list[tuple[int, float, str]] = []
-    for i, lineas in zip(indices, todas):
-        texto = _anotar(lineas, repetidos, tamano_cuerpo)
-        recursos = _exportar_recursos(doc, doc[i], dir_img)
-        paginas.append(Pagina(i + 1, texto, recursos, sin_texto=len(texto) < 20))
-        for l in lineas:
-            if l["tamano"] >= tamano_cuerpo * 1.3 and not l["mono"] and len(l["texto"].strip()) > 1:
-                candidatos.append((i + 1, l["tamano"], l["texto"].strip()[:120]))
+    pages: list[Page] = []
+    candidates: list[tuple[int, float, str]] = []
+    for i, lines in zip(indices, all_lines):
+        text = _annotate(lines, repeated, body_size)
+        assets = _export_assets(doc, doc[i], image_dir)
+        pages.append(Page(i + 1, text, assets, no_text=len(text) < 20))
+        for l in lines:
+            if l["size"] >= body_size * 1.3 and not l["mono"] and len(l["text"].strip()) > 1:
+                candidates.append((i + 1, l["size"], l["text"].strip()[:120]))
 
-    return Documento(
-        ruta=ruta_pdf,
-        num_paginas=doc.page_count,
-        metadatos={k: v for k, v in (doc.metadata or {}).items() if v},
-        indice_pdf=[(nivel, titulo, pag) for nivel, titulo, pag in doc.get_toc(simple=True)],
-        tamano_cuerpo=tamano_cuerpo,
-        paginas=paginas,
-        candidatos_titulo=candidatos,
+    return Document(
+        path=pdf_path,
+        page_count=doc.page_count,
+        metadata={k: v for k, v in (doc.metadata or {}).items() if v},
+        outline=[(level, title, page) for level, title, page in doc.get_toc(simple=True)],
+        body_size=body_size,
+        pages=pages,
+        heading_candidates=candidates,
     )
 
 
-def subpdf(ruta_pdf: Path, primera: int, ultima: int) -> bytes:
-    """Bytes de un PDF que contiene solo las páginas [primera, ultima] (1-indexado)."""
-    origen = pymupdf.open(ruta_pdf)
-    nuevo = pymupdf.open()
-    nuevo.insert_pdf(origen, from_page=primera - 1, to_page=ultima - 1)
-    return nuevo.tobytes(garbage=3, deflate=True)
+def sub_pdf(pdf_path: Path, first: int, last: int) -> bytes:
+    """Bytes of a PDF containing only pages [first, last] (1-based)."""
+    source = pymupdf.open(pdf_path)
+    new = pymupdf.open()
+    new.insert_pdf(source, from_page=first - 1, to_page=last - 1)
+    return new.tobytes(garbage=3, deflate=True)
 
 
-def portada(ruta_pdf: Path, destino: Path) -> Path:
-    pagina = pymupdf.open(ruta_pdf)[0]
-    pagina.get_pixmap(dpi=150).save(destino)
-    return destino
+def render_cover(pdf_path: Path, dest: Path) -> Path:
+    page = pymupdf.open(pdf_path)[0]
+    page.get_pixmap(dpi=150).save(dest)
+    return dest

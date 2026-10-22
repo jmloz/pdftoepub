@@ -1,11 +1,11 @@
-"""Motores de IA compartidos por todos los agentes.
+"""AI engines shared by all agents.
 
-Hay dos formas de hablar con Claude, con la misma interfaz (`pedir` / `pedir_json`):
+There are two ways to talk to Claude, with the same interface (`ask` / `ask_json`):
 
-- `ClaudeCode` (por defecto): ejecuta el `claude` instalado en local en modo no
-  interactivo (`claude -p`), usando la sesión y la suscripción de Claude Code.
-- `ClaudeAPI`: llama directamente a la API de Anthropic con `ANTHROPIC_API_KEY`
-  (facturación por tokens).
+- `ClaudeCode` (default): runs the locally installed `claude` CLI in
+  non-interactive mode (`claude -p`), using your Claude Code login and plan.
+- `ClaudeAPI`: calls the Anthropic API directly with `ANTHROPIC_API_KEY`
+  (billed per token).
 """
 
 from __future__ import annotations
@@ -19,13 +19,15 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 
-MODELO_POR_DEFECTO = "claude-opus-5-5"
-BETA_FALLBACK = "server-side-fallback-2026-07-01"
-MAX_TOKENS_SALIDA = 64000
-TIEMPO_MAXIMO = 30 * 60  # segundos por llamada
+from .i18n import t
 
-# USD por millón de tokens (entrada, salida). Solo para la estimación que se muestra al final.
-PRECIOS = {
+DEFAULT_MODEL = "claude-opus-5-5"
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+MAX_OUTPUT_TOKENS = 64000
+TIMEOUT = 30 * 60  # seconds per call
+
+# USD per million tokens (input, output). Only used for the summary shown at the end.
+PRICES = {
     "claude-opus-5-5": (4.0, 20.0),
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-haiku-5-5": (0.10, 0.50),
@@ -33,218 +35,215 @@ PRECIOS = {
 }
 
 
-class RespuestaTruncada(Exception):
-    """La salida superó el máximo de tokens: el bloque debe dividirse."""
+class TruncatedResponse(Exception):
+    """The output exceeded the token limit: the chunk must be split."""
 
 
-class RespuestaRechazada(Exception):
+class RefusedResponse(Exception):
     pass
 
 
-class ErrorMotor(Exception):
-    """Fallo del motor de IA (sin sesión, límite de uso, error de red…)."""
+class EngineError(Exception):
+    """AI engine failure (not logged in, usage limit, network error…)."""
 
 
 @dataclass
-class Consumo:
-    entrada: int = 0
-    salida: int = 0
-    cache_leida: int = 0
-    llamadas: int = 0
-    coste_informado: float = 0.0  # lo que reporta Claude Code
+class Usage:
+    input: int = 0
+    output: int = 0
+    cache_read: int = 0
+    calls: int = 0
+    reported_cost: float = 0.0  # as reported by Claude Code
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def sumar(self, entrada: int, salida: int, cache_leida: int, coste: float = 0.0) -> None:
+    def add(self, input: int, output: int, cache_read: int, cost: float = 0.0) -> None:
         with self._lock:
-            self.entrada += entrada
-            self.salida += salida
-            self.cache_leida += cache_leida
-            self.coste_informado += coste
-            self.llamadas += 1
+            self.input += input
+            self.output += output
+            self.cache_read += cache_read
+            self.reported_cost += cost
+            self.calls += 1
 
-    def coste(self, modelo: str) -> float | None:
-        if self.coste_informado:
-            return self.coste_informado
-        if modelo not in PRECIOS:
+    def cost(self, model: str) -> float | None:
+        if self.reported_cost:
+            return self.reported_cost
+        if model not in PRICES:
             return None
-        p_in, p_out = PRECIOS[modelo]
-        return (self.entrada * p_in + self.cache_leida * p_in * 0.1 + self.salida * p_out) / 1e6
+        p_in, p_out = PRICES[model]
+        return (self.input * p_in + self.cache_read * p_in * 0.1 + self.output * p_out) / 1e6
 
 
-def bloque_pdf(datos: bytes) -> dict:
+def pdf_block(data: bytes) -> dict:
     return {
         "type": "document",
         "source": {
             "type": "base64",
             "media_type": "application/pdf",
-            "data": base64.standard_b64encode(datos).decode("ascii"),
+            "data": base64.standard_b64encode(data).decode("ascii"),
         },
     }
 
 
-def _como_bloques(contenido: list[dict] | str) -> list[dict]:
-    return [{"type": "text", "text": contenido}] if isinstance(contenido, str) else contenido
+def _as_blocks(content: list[dict] | str) -> list[dict]:
+    return [{"type": "text", "text": content}] if isinstance(content, str) else content
 
 
-class Motor:
-    nombre = ""
+class Engine:
+    name = ""
 
-    def __init__(self, modelo: str = MODELO_POR_DEFECTO, esfuerzo: str = "high"):
-        self.modelo = modelo
-        self.esfuerzo = esfuerzo
-        self.consumo = Consumo()
+    def __init__(self, model: str = DEFAULT_MODEL, effort: str = "high"):
+        self.model = model
+        self.effort = effort
+        self.usage = Usage()
 
-    def pedir(self, sistema: str, contenido: list[dict] | str, *, esquema: dict | None = None,
-              esfuerzo: str | None = None) -> str:
+    def ask(self, system: str, content: list[dict] | str, *, schema: dict | None = None,
+            effort: str | None = None) -> str:
         raise NotImplementedError
 
-    def pedir_json(self, sistema: str, contenido: list[dict] | str, esquema: dict, **kw) -> dict:
-        return json.loads(self.pedir(sistema, contenido, esquema=esquema, **kw))
+    def ask_json(self, system: str, content: list[dict] | str, schema: dict, **kw) -> dict:
+        return json.loads(self.ask(system, content, schema=schema, **kw))
 
 
 # ---------------------------------------------------------------------------
-# Claude Code local
+# Local Claude Code
 # ---------------------------------------------------------------------------
 
-class ClaudeCode(Motor):
-    """Ejecuta los agentes con el CLI `claude` de Claude Code instalado en local."""
+class ClaudeCode(Engine):
+    """Runs the agents through the locally installed Claude Code CLI (`claude`)."""
 
-    nombre = "Claude Code"
+    name = "Claude Code"
 
-    def __init__(self, modelo: str = MODELO_POR_DEFECTO, esfuerzo: str = "high", ejecutable: str = "claude"):
-        super().__init__(modelo, esfuerzo)
-        ruta = shutil.which(ejecutable)
-        if ruta is None:
-            raise ErrorMotor(
-                "No se encuentra el comando `claude`. Instala Claude Code "
-                "(https://claude.com/claude-code) e inicia sesión ejecutando `claude` una vez."
-            )
-        self.ejecutable = ruta
+    def __init__(self, model: str = DEFAULT_MODEL, effort: str = "high", executable: str = "claude"):
+        super().__init__(model, effort)
+        path = shutil.which(executable)
+        if path is None:
+            raise EngineError(t("err.no_claude"))
+        self.executable = path
 
-    def _comando(self, sistema: str, esquema: dict | None, esfuerzo: str) -> list[str]:
+    def _command(self, system: str, schema: dict | None, effort: str) -> list[str]:
         cmd = [
-            self.ejecutable, "-p",
+            self.executable, "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json", "--verbose",
-            "--model", self.modelo,
-            "--effort", esfuerzo,
-            "--system-prompt", sistema,
-            # Los agentes solo transforman texto: sin herramientas, sin MCP, sin
-            # configuración del usuario y sin guardar la sesión en el historial.
+            "--model", self.model,
+            "--effort", effort,
+            "--system-prompt", system,
+            # The agents only transform text: no tools, no MCP servers, no user
+            # settings, and the session is not saved to the user's history.
             "--tools", "",
             "--strict-mcp-config",
             "--setting-sources", "",
             "--no-session-persistence",
         ]
-        if esquema:
-            cmd += ["--json-schema", json.dumps(esquema)]
+        if schema:
+            cmd += ["--json-schema", json.dumps(schema)]
         return cmd
 
-    def _ejecutar(self, sistema: str, contenido: list[dict] | str, esquema: dict | None, esfuerzo: str) -> dict:
-        mensaje = {"type": "user", "message": {"role": "user", "content": _como_bloques(contenido)}}
-        entorno = {**os.environ, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(MAX_TOKENS_SALIDA)}
-        # Directorio vacío: evita que Claude Code cargue CLAUDE.md u otros ficheros del proyecto.
-        with tempfile.TemporaryDirectory(prefix="pdftoepub-") as vacio:
+    def _run(self, system: str, content: list[dict] | str, schema: dict | None, effort: str) -> dict:
+        message = {"type": "user", "message": {"role": "user", "content": _as_blocks(content)}}
+        env = {**os.environ, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(MAX_OUTPUT_TOKENS)}
+        # Empty working directory: keeps Claude Code from loading CLAUDE.md or project files.
+        with tempfile.TemporaryDirectory(prefix="pdftoepub-") as empty_dir:
             try:
                 proc = subprocess.run(
-                    self._comando(sistema, esquema, esfuerzo),
-                    input=json.dumps(mensaje) + "\n",
-                    capture_output=True, text=True, cwd=vacio, env=entorno, timeout=TIEMPO_MAXIMO,
+                    self._command(system, schema, effort),
+                    input=json.dumps(message) + "\n",
+                    capture_output=True, text=True, cwd=empty_dir, env=env, timeout=TIMEOUT,
                 )
             except subprocess.TimeoutExpired as e:
-                raise ErrorMotor(f"Claude Code no respondió en {TIEMPO_MAXIMO // 60} minutos.") from e
+                raise EngineError(t("err.timeout", minutes=TIMEOUT // 60)) from e
 
-        resultado = None
-        for linea in proc.stdout.splitlines():
+        result = None
+        for line in proc.stdout.splitlines():
             try:
-                evento = json.loads(linea)
+                event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if evento.get("type") == "result":
-                resultado = evento
-        if resultado is None:
-            detalle = (proc.stderr or proc.stdout).strip()[-800:]
-            raise ErrorMotor(f"Claude Code terminó sin respuesta (código {proc.returncode}): {detalle}")
-        return resultado
+            if event.get("type") == "result":
+                result = event
+        if result is None:
+            detail = (proc.stderr or proc.stdout).strip()[-800:]
+            raise EngineError(t("err.no_result", code=proc.returncode, detail=detail))
+        return result
 
-    def pedir(self, sistema, contenido, *, esquema=None, esfuerzo=None) -> str:
-        r = self._ejecutar(sistema, contenido, esquema, esfuerzo or self.esfuerzo)
-        uso = r.get("usage") or {}
-        self.consumo.sumar(
-            (uso.get("input_tokens") or 0) + (uso.get("cache_creation_input_tokens") or 0),
-            uso.get("output_tokens") or 0,
-            uso.get("cache_read_input_tokens") or 0,
+    def ask(self, system, content, *, schema=None, effort=None) -> str:
+        r = self._run(system, content, schema, effort or self.effort)
+        usage = r.get("usage") or {}
+        self.usage.add(
+            (usage.get("input_tokens") or 0) + (usage.get("cache_creation_input_tokens") or 0),
+            usage.get("output_tokens") or 0,
+            usage.get("cache_read_input_tokens") or 0,
             r.get("total_cost_usd") or 0.0,
         )
         if r.get("stop_reason") == "refusal":
-            raise RespuestaRechazada(r.get("result") or "El modelo rechazó procesar este fragmento.")
+            raise RefusedResponse(r.get("result") or t("err.refused"))
         if r.get("stop_reason") == "max_tokens":
-            raise RespuestaTruncada()
+            raise TruncatedResponse()
         if r.get("is_error") or r.get("subtype") != "success":
-            raise ErrorMotor(f"Claude Code devolvió un error: {r.get('result') or r.get('subtype')}")
-        if esquema:
+            raise EngineError(t("err.claude_code", detail=r.get("result") or r.get("subtype")))
+        if schema:
             if r.get("structured_output") is None:
-                raise ErrorMotor("Claude Code no devolvió la salida estructurada esperada.")
+                raise EngineError(t("err.no_structured"))
             return json.dumps(r["structured_output"])
         return r.get("result") or ""
 
 
 # ---------------------------------------------------------------------------
-# API de Anthropic
+# Anthropic API
 # ---------------------------------------------------------------------------
 
-class ClaudeAPI(Motor):
-    """Llama a la API de Anthropic directamente (requiere ANTHROPIC_API_KEY)."""
+class ClaudeAPI(Engine):
+    """Calls the Anthropic API directly (requires ANTHROPIC_API_KEY)."""
 
-    nombre = "API de Anthropic"
+    name = "Anthropic API"
 
-    def __init__(self, modelo: str = MODELO_POR_DEFECTO, esfuerzo: str = "high"):
-        super().__init__(modelo, esfuerzo)
+    def __init__(self, model: str = DEFAULT_MODEL, effort: str = "high"):
+        super().__init__(model, effort)
         import anthropic
 
         self._anthropic = anthropic
-        self.cliente = anthropic.Anthropic(max_retries=5)
+        self.client = anthropic.Anthropic(max_retries=5)
 
-    def pedir(self, sistema, contenido, *, esquema=None, esfuerzo=None) -> str:
-        output_config: dict = {"effort": esfuerzo or self.esfuerzo}
-        if esquema:
-            output_config["format"] = {"type": "json_schema", "schema": esquema}
+    def ask(self, system, content, *, schema=None, effort=None) -> str:
+        output_config: dict = {"effort": effort or self.effort}
+        if schema:
+            output_config["format"] = {"type": "json_schema", "schema": schema}
 
         try:
-            with self.cliente.beta.messages.stream(
-                model=self.modelo,
-                max_tokens=MAX_TOKENS_SALIDA,
-                # El system prompt de cada agente es fijo: se cachea entre bloques.
-                system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": _como_bloques(contenido)}],
+            with self.client.beta.messages.stream(
+                model=self.model,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                # Each agent's system prompt is fixed, so it is cached across chunks.
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": _as_blocks(content)}],
                 output_config=output_config,
-                # Libros de seguridad/hacking pueden activar los clasificadores: si el modelo
-                # rechaza la petición, la API la reintenta con el modelo alternativo recomendado.
-                betas=[BETA_FALLBACK],
+                # Security/hacking books may trigger the safety classifiers: if the model
+                # refuses, the API retries the request on the recommended fallback model.
+                betas=[FALLBACK_BETA],
                 fallbacks="default",
             ) as stream:
-                respuesta = stream.get_final_message()
+                response = stream.get_final_message()
         except TypeError as e:
             if "authentication" in str(e):
-                raise ErrorMotor("No hay credenciales de la API. Define ANTHROPIC_API_KEY.") from e
+                raise EngineError(t("err.no_api_key")) from e
             raise
         except self._anthropic.AuthenticationError as e:
-            raise ErrorMotor("Clave de API no válida. Revisa ANTHROPIC_API_KEY.") from e
+            raise EngineError(t("err.bad_api_key")) from e
         except self._anthropic.APIError as e:
-            raise ErrorMotor(f"Error de la API de Anthropic: {e}") from e
+            raise EngineError(t("err.api", detail=e)) from e
 
-        uso = respuesta.usage
-        self.consumo.sumar(
-            (uso.input_tokens or 0) + (uso.cache_creation_input_tokens or 0),
-            uso.output_tokens or 0,
-            uso.cache_read_input_tokens or 0,
+        u = response.usage
+        self.usage.add(
+            (u.input_tokens or 0) + (u.cache_creation_input_tokens or 0),
+            u.output_tokens or 0,
+            u.cache_read_input_tokens or 0,
         )
-        if respuesta.stop_reason == "refusal":
-            detalle = getattr(respuesta.stop_details, "explanation", None) if respuesta.stop_details else None
-            raise RespuestaRechazada(detalle or "El modelo rechazó procesar este fragmento.")
-        if respuesta.stop_reason == "max_tokens":
-            raise RespuestaTruncada()
-        return "".join(b.text for b in respuesta.content if b.type == "text")
+        if response.stop_reason == "refusal":
+            detail = getattr(response.stop_details, "explanation", None) if response.stop_details else None
+            raise RefusedResponse(detail or t("err.refused"))
+        if response.stop_reason == "max_tokens":
+            raise TruncatedResponse()
+        return "".join(b.text for b in response.content if b.type == "text")
 
 
-MOTORES = {"claude-code": ClaudeCode, "api": ClaudeAPI}
+ENGINES = {"claude-code": ClaudeCode, "api": ClaudeAPI}

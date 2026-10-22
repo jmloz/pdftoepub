@@ -1,90 +1,95 @@
 # pdftoepub
 
-**Convierte libros PDF en EPUB limpios, coherentes y fieles al original usando agentes de IA (Claude).**
+**English** · [Español](README.es.md)
 
-Pensado especialmente para libros técnicos: programación, Linux, administración de sistemas,
-redes, comandos… El código se conserva carácter por carácter, en bloques legibles y con
-resaltado de sintaxis, y el texto se reflota para leerse cómodamente en cualquier lector
-de libros electrónicos.
+**Convert PDF books into clean, coherent EPUBs that stay faithful to the original, using AI agents (Claude).**
+
+Built especially for technical books: programming, Linux, system administration,
+networking, command-line tools… Code is preserved character by character, in readable
+blocks with syntax highlighting, and the text is reflowed to read comfortably on any
+e-book reader.
 
 > [!IMPORTANT]
-> **Necesitas Claude Code instalado y con la sesión iniciada en tu equipo.**
-> Los agentes de IA se ejecutan a través del comando `claude` local (modo no interactivo
-> `claude -p`), así que el programa usa tu cuenta de Claude Code (suscripción Pro / Max o
-> cuenta de Claude Console). Ver [Requisitos](#requisitos).
+> **You need Claude Code installed and logged in on your machine.**
+> The AI agents run through your local `claude` command (non-interactive mode
+> `claude -p`), so the program uses your Claude Code account (Pro / Max plan or a
+> Claude Console account). See [Requirements](#requirements).
 
 ---
 
-## Índice
+## Contents
 
-- [Por qué otro conversor](#por-qué-otro-conversor)
-- [Características](#características)
-- [Requisitos](#requisitos)
-- [Instalación](#instalación)
-- [Uso rápido](#uso-rápido)
-- [Opciones](#opciones)
-- [Cómo funciona](#cómo-funciona)
-- [Ejemplo de resultado](#ejemplo-de-resultado)
-- [Reanudar y corregir una conversión](#reanudar-y-corregir-una-conversión)
-- [Consumo y costes](#consumo-y-costes)
-- [Motor alternativo: API de Anthropic](#motor-alternativo-api-de-anthropic)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Desarrollo y pruebas](#desarrollo-y-pruebas)
-- [Limitaciones](#limitaciones)
-- [Solución de problemas](#solución-de-problemas)
-- [Privacidad y derechos de autor](#privacidad-y-derechos-de-autor)
-- [Licencia](#licencia)
+- [Why another converter](#why-another-converter)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Options](#options)
+- [Interface language](#interface-language)
+- [How it works](#how-it-works)
+- [Example output](#example-output)
+- [Resuming and fixing a conversion](#resuming-and-fixing-a-conversion)
+- [Usage and costs](#usage-and-costs)
+- [Alternative engine: Anthropic API](#alternative-engine-anthropic-api)
+- [Project structure](#project-structure)
+- [Development and tests](#development-and-tests)
+- [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
+- [Privacy and copyright](#privacy-and-copyright)
+- [License](#license)
 
 ---
 
-## Por qué otro conversor
+## Why another converter
 
-Los conversores clásicos (Calibre, pandoc, etc.) tratan el PDF como un dibujo de letras en
-posiciones fijas. Con libros técnicos el resultado suele ser malo:
+Classic converters (Calibre, pandoc, etc.) treat a PDF as letters drawn at fixed
+positions. With technical books the result is usually poor:
 
-- Los bloques de código se convierten en párrafos, pierden la sangría o se mezclan con el texto.
-- Las palabras cortadas con guion a final de línea quedan partidas (`termi- nal`).
-- Cabeceras, pies y números de página aparecen en mitad del texto.
-- Las tablas se deshacen y los comandos largos se cortan.
+- Code blocks become paragraphs, lose their indentation or get mixed with the text.
+- Words hyphenated at the end of a line stay broken (`termi- nal`).
+- Running headers, footers and page numbers show up in the middle of the text.
+- Tables fall apart and long commands get cut off.
 
-`pdftoepub` combina una extracción precisa del PDF con agentes de IA que **entienden** lo
-que están leyendo (esto es un título, esto es una sesión de terminal, esto es una tabla de
-opciones) y comprobaciones automáticas que garantizan que no se pierde contenido.
+`pdftoepub` combines precise PDF extraction with AI agents that **understand** what they
+are reading (this is a heading, this is a terminal session, this is a table of options),
+plus automatic checks that make sure no content is lost.
 
-## Características
+## Features
 
-- 🧠 **Tres agentes especializados**: Analista (estructura), Maquetador (conversión) y Revisor (corrección).
-- 💻 **Código fiel al original**: monoespaciada detectada en el PDF, sangría reconstruida, comillas rectas,
-  `--opciones` intactas, lenguaje identificado (`bash`, `console`, `python`, `c`, `yaml`…) y resaltado de sintaxis.
-- 👁️ **Visión**: el modelo ve la página real además del texto, así reconstruye tablas, recuadros de notas
-  y figuras correctamente. Los PDF escaneados se transcriben desde la imagen.
-- ✅ **Verificación automática**: cada bloque se comprueba (cobertura de palabras, líneas de código,
-  XHTML válido); si falta algo, el agente Revisor lo corrige.
-- 🔗 **Continuidad entre páginas**: párrafos, listas, tablas y bloques de código partidos entre páginas se unen.
-- 📚 **EPUB 3 completo**: portada, metadatos, índice navegable con capítulos y secciones, imágenes y diagramas,
-  hoja de estilos pensada para lectores (el código largo se ajusta en vez de cortarse).
-- ♻️ **Reanudable**: todo se guarda en una carpeta de trabajo; si se interrumpe, continúa donde lo dejó.
-- ⚙️ **Ajustable**: modelo, nivel de esfuerzo, tamaño de bloque, paralelismo, rango de páginas…
+- 🧠 **Three specialized agents**: Analyst (structure), Layout (conversion) and Reviewer (fixes).
+- 💻 **Code faithful to the original**: monospaced text detected in the PDF, indentation rebuilt,
+  straight quotes, `--options` intact, language identified (`bash`, `console`, `python`, `c`, `yaml`…)
+  and syntax highlighting.
+- 👁️ **Vision**: the model sees the real page as well as the text, so it rebuilds tables, note boxes
+  and figures correctly. Scanned PDFs are transcribed from the image.
+- ✅ **Automatic verification**: every chunk is checked (word coverage, code lines, valid XHTML);
+  if something is missing, the Reviewer agent fixes it.
+- 🔗 **Continuity across pages**: paragraphs, lists, tables and code blocks split across pages are merged.
+- 📚 **Complete EPUB 3**: cover, metadata, navigable table of contents with chapters and sections,
+  images and diagrams, and a stylesheet designed for e-readers (long code wraps instead of being cut).
+- ♻️ **Resumable**: everything is saved in a work folder; if interrupted, it continues where it stopped.
+- 🌍 **English or Spanish interface**; the book always keeps its original language.
+- ⚙️ **Tunable**: model, effort level, chunk size, parallelism, page range…
 
-## Requisitos
+## Requirements
 
-| Requisito | Detalles |
+| Requirement | Details |
 |---|---|
-| **Claude Code** | Instalado y con sesión iniciada. Debe funcionar el comando `claude` en tu terminal. Necesita una suscripción Claude Pro/Max o una cuenta de Claude Console. [Instalar Claude Code](https://claude.com/claude-code) |
+| **Claude Code** | Installed and logged in. The `claude` command must work in your terminal. Requires a Claude Pro/Max plan or a Claude Console account. [Install Claude Code](https://claude.com/claude-code) |
 | **Python 3.13+** | |
-| **[uv](https://docs.astral.sh/uv/)** | Gestor de proyectos de Python (recomendado). |
-| Sistema | Linux, macOS o Windows (WSL). |
+| **[uv](https://docs.astral.sh/uv/)** | Python project manager (recommended). |
+| OS | Linux, macOS or Windows (WSL). |
 
-Comprueba que Claude Code está listo:
+Check that Claude Code is ready:
 
 ```bash
-claude --version          # debe mostrar la versión
-claude -p "di hola"       # debe responder sin pedir login
+claude --version          # should print the version
+claude -p "say hello"     # should answer without asking you to log in
 ```
 
-Si es la primera vez, ejecuta `claude` una vez para iniciar sesión.
+If it's your first time, run `claude` once to log in.
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://github.com/jmloz/pdftoepub.git
@@ -92,277 +97,297 @@ cd pdftoepub
 uv sync
 ```
 
-Opcionalmente, instálalo como comando global:
+Optionally, install it as a global command:
 
 ```bash
 uv tool install .
 pdftoepub --help
 ```
 
-## Uso rápido
+## Quick start
 
 ```bash
-# 1. Mira cuánto va a consumir
-uv run pdftoepub libro.pdf --estimar
+# 1. See how much it will use
+uv run pdftoepub book.pdf --estimate
 
-# 2. Prueba con las primeras páginas y revisa el resultado
-uv run pdftoepub libro.pdf --rango 1-30 -o prueba.epub
+# 2. Try the first pages and check the result
+uv run pdftoepub book.pdf --pages 1-30 -o test.epub
 
-# 3. Conversión completa (genera libro.epub junto al PDF)
-uv run pdftoepub libro.pdf
+# 3. Full conversion (creates book.epub next to the PDF)
+uv run pdftoepub book.pdf
 ```
 
-Durante la conversión verás el progreso de cada agente:
+During the conversion you will see each agent's progress:
 
 ```
-· Extrayendo texto, código e imágenes de libro.pdf…
-  412 páginas, cuerpo de 10pt, 57 imágenes/diagramas
-· Agente Analista (Claude Code): estudiando la estructura del libro…
-· «Guía práctica de Linux» — 18 capítulos (Sistemas operativos / Linux)
-· Agente Maquetador convirtiendo capítulos…
-  · Agente Revisor corrigiendo págs. 37-42: Faltan o están alteradas 4 de 61 líneas de código…
-  ✓ Capítulo 1: Introducción a la terminal
+· Extracting text, code and images from book.pdf…
+  412 pages, 10pt body text, 57 images/diagrams
+· Analyst agent (Claude Code): studying the book structure…
+· «Practical Linux Guide» — 18 chapters (Operating systems / Linux)
+· Layout agent converting chapters…
+  · Reviewer agent fixing pages 37-42: 4 of 61 code lines are missing or altered…
+  ✓ Chapter 1: Introduction to the terminal
   ...
-· Ensamblando EPUB…
-✔ EPUB generado: libro.epub
+· Assembling EPUB…
+✔ EPUB created: book.epub
 ```
 
-Más ejemplos:
+More examples:
 
 ```bash
-# Más rápido y con menos consumo: modelo Sonnet y sin enviar imágenes de página
-uv run pdftoepub libro.pdf --modelo claude-sonnet-5-5 --sin-vision
+# Faster and lighter: Sonnet model, no page images
+uv run pdftoepub book.pdf --model claude-sonnet-5-5 --no-vision
 
-# Máxima calidad para un libro difícil (tablas complejas, mucho código)
-uv run pdftoepub libro.pdf --esfuerzo xhigh --paginas-por-bloque 4
+# Maximum quality for a hard book (complex tables, lots of code)
+uv run pdftoepub book.pdf --effort xhigh --pages-per-chunk 4
 
-# Conversión básica sin IA (no necesita Claude Code; útil para probar)
-uv run pdftoepub libro.pdf --sin-ia
+# Basic conversion without AI (does not need Claude Code; useful for testing)
+uv run pdftoepub book.pdf --no-ai
+
+# Interface in Spanish
+uv run pdftoepub book.pdf --lang es
 ```
 
-## Opciones
+## Options
 
-| Opción | Por defecto | Descripción |
+| Option | Default | Description |
 |---|---|---|
-| `-o, --salida` | `<pdf>.epub` | Ruta del EPUB generado. |
-| `--motor` | `claude-code` | `claude-code` usa tu Claude Code local; `api` usa la API de Anthropic ([ver abajo](#motor-alternativo-api-de-anthropic)). |
-| `--modelo` | `claude-opus-5-5` | Modelo de Claude que usan los agentes. |
-| `--esfuerzo` | `high` | Profundidad de razonamiento: `low`, `medium`, `high`, `xhigh`, `max`. |
-| `--paginas-por-bloque` | `6` | Páginas que procesa el Maquetador en cada llamada. Menos páginas = más precisión y más llamadas. |
-| `--paralelo` | `3` | Capítulos que se convierten a la vez. |
-| `--revisiones` | `2` | Rondas máximas del agente Revisor por bloque. |
-| `--rango` | todo | Convierte solo un rango de páginas, p. ej. `1-40`. |
-| `--sin-vision` | — | No envía la imagen de las páginas al modelo (menos consumo; peor con tablas, figuras y escaneos). |
-| `--sin-resaltado` | — | Código sin colores de sintaxis. |
-| `--sin-ia` | — | Conversión básica determinista, sin agentes. |
-| `--estimar` | — | Solo estima los tokens que consumirá la conversión. |
+| `-o, --output` | `<pdf>.epub` | Path of the generated EPUB. |
+| `--engine` | `claude-code` | `claude-code` uses your local Claude Code; `api` uses the Anthropic API ([see below](#alternative-engine-anthropic-api)). |
+| `--model` | `claude-opus-5-5` | Claude model used by the agents. |
+| `--effort` | `high` | Reasoning depth: `low`, `medium`, `high`, `xhigh`, `max`. |
+| `--pages-per-chunk` | `6` | Pages the Layout agent processes per call. Fewer pages = more precision and more calls. |
+| `--parallel` | `3` | Chapters converted at the same time. |
+| `--reviews` | `2` | Maximum Reviewer rounds per chunk. |
+| `--pages` | all | Convert only a page range, e.g. `1-40`. |
+| `--no-vision` | — | Don't send page images to the model (lower usage; worse with tables, figures and scans). |
+| `--no-highlight` | — | Code without syntax colors. |
+| `--no-ai` | — | Basic deterministic conversion, no agents. |
+| `--estimate` | — | Only estimate the tokens the conversion will use. |
+| `--lang` | auto | Interface language: `en` or `es` ([see below](#interface-language)). |
 
-## Cómo funciona
+## Interface language
+
+The program's messages and help are available in **English** and **Spanish**. The language
+is chosen in this order:
+
+1. The `--lang` option: `pdftoepub book.pdf --lang es`
+2. The `PDFTOEPUB_LANG` environment variable: `export PDFTOEPUB_LANG=es`
+3. Your system locale (`LANG`, `LC_ALL`…): if it starts with `es`, Spanish is used.
+4. Otherwise, English.
+
+The interface language does **not** affect the book: the EPUB always keeps the
+language of the original PDF.
+
+## How it works
 
 ```
           ┌──────────────┐   ┌──────────────────┐   ┌────────────────────┐
- PDF ───► │  Extractor   │──►│ Agente Analista  │──►│ Agente Maquetador  │──┐
-          │   (sin IA)   │   │   (estructura)   │   │ (bloque a bloque)  │  │
+ PDF ───► │  Extractor   │──►│  Analyst agent   │──►│    Layout agent    │──┐
+          │   (no AI)    │   │   (structure)    │   │  (chunk by chunk)  │  │
           └──────────────┘   └──────────────────┘   └────────────────────┘  │
                                                               ▲             ▼
                                                     ┌─────────┴───┐  ┌─────────────┐
-                                                    │   Agente    │◄─│ Verificador │
-                                                    │   Revisor   │  │  (sin IA)   │
+                                                    │  Reviewer   │◄─│  Verifier   │
+                                                    │    agent    │  │   (no AI)   │
                                                     └─────────────┘  └──────┬──────┘
                                                                             ▼
                                                     ┌──────────────┐
-                                           EPUB ◄───│ Ensamblador  │
-                                                    │   (sin IA)   │
+                                           EPUB ◄───│  Assembler   │
+                                                    │   (no AI)    │
                                                     └──────────────┘
 ```
 
-1. **Extractor** (`extractor.py`, sin IA). Lee el PDF con PyMuPDF y genera un texto *anotado*:
-   las líneas en fuente monoespaciada se marcan como código y se reconstruye su sangría a
-   partir de la posición horizontal; las líneas con letra más grande que el cuerpo se marcan
-   como posibles títulos; se eliminan cabeceras, pies y números de página que se repiten;
-   se exportan las imágenes y se rasterizan los diagramas vectoriales.
+1. **Extractor** (`extractor.py`, no AI). Reads the PDF with PyMuPDF and produces *annotated*
+   text: lines in a monospaced font are marked as code and their indentation is rebuilt from
+   their horizontal position; lines larger than the body text are marked as likely headings;
+   repeated running headers, footers and page numbers are removed; images are exported and
+   vector diagrams are rasterized.
 
-2. **Agente Analista**. Estudia los marcadores del PDF, los posibles títulos y las primeras
-   páginas, y produce el *perfil* del libro: título, autores, idioma, temática, lenguajes de
-   código presentes, convenciones tipográficas y la división en capítulos. Se guarda en
-   `perfil.json`.
+2. **Analyst agent**. Studies the PDF bookmarks, heading candidates and first pages, and
+   produces the book's *profile*: title, authors, language, subject, code languages present,
+   typographic conventions and the chapter split. Saved to `profile.json`.
 
-3. **Agente Maquetador**. Para cada bloque de páginas recibe la imagen de esas páginas (PDF),
-   el texto anotado, el perfil del libro y el final del bloque anterior. Devuelve XHTML
-   semántico: párrafos completos, palabras cortadas reparadas, `<pre><code class="language-…">`
-   para código, tablas, listas, notas, teclas, figuras con texto alternativo y notas al pie.
-   Su regla principal es la **fidelidad**: reestructura, nunca resume ni reescribe.
+3. **Layout agent**. For each chunk of pages it receives the image of those pages (PDF), the
+   annotated text, the book profile and the end of the previous chunk. It returns semantic
+   XHTML: full paragraphs, rejoined hyphenated words, `<pre><code class="language-…">` for
+   code, tables, lists, notes, keys, figures with alt text and footnotes. Its main rule is
+   **fidelity**: it restructures, it never summarizes or rewrites.
 
-4. **Verificador** (`verificador.py`, sin IA). Comprueba cada bloque:
-   - el XHTML está bien formado;
-   - aparece al menos el 93 % de las palabras del original;
-   - aparecen todas las líneas de código del original;
-   - las imágenes referenciadas existen.
+4. **Verifier** (`verifier.py`, no AI). Checks every chunk:
+   - the XHTML is well-formed;
+   - at least 93% of the original's words are present;
+   - every code line of the original is present;
+   - referenced images exist.
 
-5. **Agente Revisor**. Solo interviene si el verificador detecta problemas: recibe la lista
-   concreta de fallos y devuelve el bloque corregido. Se repite hasta `--revisiones` veces.
+5. **Reviewer agent**. Steps in only when the verifier finds problems: it receives the
+   concrete list of failures and returns the fixed chunk. Repeats up to `--reviews` times.
 
-6. **Ensamblador** (`ensamblador.py`, sin IA). Une los bloques de cada capítulo (incluidos
-   párrafos y código partidos entre páginas), colorea el código con Pygments, numera las
-   secciones, genera el índice navegable y la portada, y escribe el EPUB 3.
+6. **Assembler** (`assembler.py`, no AI). Merges each chapter's chunks (including paragraphs
+   and code split across pages), highlights code with Pygments, numbers the sections,
+   builds the navigable table of contents and the cover, and writes the EPUB 3.
 
-## Ejemplo de resultado
+## Example output
 
-Página de un PDF con un párrafo cortado entre líneas, un comando y un script:
+A PDF page with a paragraph broken across lines, a command and a script:
 
 ```text
-Este capítulo explica cómo usar la termi-
-nal de Linux para gestionar archivos de manera eficiente.
-1.1 Listar archivos
-El comando ls muestra el contenido de un directorio:
+This chapter explains how to use the Linux termi-
+nal to manage files efficiently.
+1.1 Listing files
+The ls command lists the contents of a directory:
 $ ls -la /etc | grep --color=auto conf
 for f in *.txt; do
-    echo "$f" >> lista.log
+    echo "$f" >> list.log
 done
 ```
 
-XHTML generado por los agentes:
+XHTML produced by the agents:
 
 ```html
-<h1>Capítulo 1. Comandos básicos</h1>
-<p>Este capítulo explica cómo usar la terminal de Linux para gestionar archivos de manera eficiente.</p>
-<h2>1.1 Listar archivos</h2>
-<p>El comando <code>ls</code> muestra el contenido de un directorio:</p>
+<h1>Chapter 1. Basic commands</h1>
+<p>This chapter explains how to use the Linux terminal to manage files efficiently.</p>
+<h2>1.1 Listing files</h2>
+<p>The <code>ls</code> command lists the contents of a directory:</p>
 <pre><code class="language-console">$ ls -la /etc | grep --color=auto conf</code></pre>
 <pre><code class="language-bash">for f in *.txt; do
-    echo "$f" &gt;&gt; lista.log
+    echo "$f" &gt;&gt; list.log
 done</code></pre>
 ```
 
-La palabra partida se une, el comando de terminal (`console`) y el script (`bash`) se
-separan e identifican, y la sangría del código se conserva.
+The broken word is rejoined, the terminal command (`console`) and the script (`bash`)
+are separated and identified, and the code indentation is preserved.
 
-## Reanudar y corregir una conversión
+## Resuming and fixing a conversion
 
-Todo el trabajo intermedio se guarda en una carpeta junto al EPUB (`libro.trabajo/`):
+All intermediate work is saved in a folder next to the EPUB (`book.work/`):
 
 ```
-libro.trabajo/
-├── perfil.json     # análisis del libro (metadatos y capítulos)
-├── bloques/        # XHTML de cada bloque ya convertido
-├── imagenes/       # imágenes y diagramas extraídos
-└── portada.png
+book.work/
+├── profile.json    # book analysis (metadata and chapters)
+├── chunks/         # XHTML of every converted chunk
+├── images/         # extracted images and diagrams
+└── cover.png
 ```
 
-- **Si se interrumpe** (Ctrl+C, corte de red, límite de uso alcanzado), vuelve a lanzar el
-  mismo comando: solo se procesan los bloques que faltan.
-- **Si un capítulo está mal cortado** o el título/autor no es correcto, edita `perfil.json`,
-  borra la carpeta `bloques/` y vuelve a ejecutar. El análisis no se repite.
-- **Para regenerar un bloque concreto**, borra su archivo en `bloques/` y vuelve a ejecutar.
-- **Para empezar de cero**, borra la carpeta `libro.trabajo/`.
+- **If it is interrupted** (Ctrl+C, network failure, usage limit reached), run the same
+  command again: only the missing chunks are processed.
+- **If a chapter is split wrongly** or the title/author is wrong, edit `profile.json`,
+  delete the `chunks/` folder and run again. The analysis is not repeated.
+- **To regenerate a specific chunk**, delete its file in `chunks/` and run again.
+- **To start from scratch**, delete the `book.work/` folder.
 
-## Consumo y costes
+## Usage and costs
 
-Con el motor por defecto (Claude Code) se paga como Claude Code esté configurado en tu equipo:
+With the default engine (Claude Code), what you pay depends on how Claude Code is logged in
+on your machine:
 
-| Cómo iniciaste sesión en Claude Code | Qué consume `pdftoepub` |
+| How you logged in to Claude Code | What `pdftoepub` uses |
 |---|---|
-| Suscripción **Claude Pro / Max** | La **cuota de uso de tu plan**. No se cobra dinero aparte (salvo que tengas activado el uso adicional de pago). |
-| Cuenta de **Claude Console** (API) o `ANTHROPIC_API_KEY` en el entorno | **Dinero real**, por tokens, según los precios de la API. |
+| **Claude Pro / Max** plan | Your **plan's usage allowance**. No extra money is charged (unless you enabled paid extra usage). |
+| **Claude Console** (API) account, or `ANTHROPIC_API_KEY` set in the environment | **Real money**, per token, at API prices. |
 
-Al terminar, el programa muestra los tokens usados y su **equivalente** en precio de API.
-Es solo una referencia: con una suscripción Pro/Max no se te cobra esa cantidad.
+When it finishes, the program shows the tokens used and their **equivalent** API price.
+It's only a reference: on a Pro/Max plan you are not charged that amount.
 
 > [!WARNING]
-> Si tienes la variable `ANTHROPIC_API_KEY` definida en tu terminal, Claude Code la usa
-> en lugar de tu suscripción y se factura por tokens. Para usar tu plan, quítala antes de
-> lanzar el programa: `unset ANTHROPIC_API_KEY`.
+> If the `ANTHROPIC_API_KEY` variable is set in your terminal, Claude Code uses it instead
+> of your plan and bills per token. To use your plan, unset it before running the program:
+> `unset ANTHROPIC_API_KEY`.
 
-Orientativamente, cada página cuesta unos 2.000–4.000 tokens de entrada (texto + imagen de
-la página) y una cantidad de salida similar al texto de la página. Un libro de 400 páginas
-puede consumir una parte importante de la cuota de un plan Pro; en planes Max o con
-`--modelo claude-sonnet-5-5` y `--sin-vision` el consumo es mucho más llevadero.
+As a rough guide, each page uses about 2,000–4,000 input tokens (text + page image) and an
+output similar to the page's text. A 400-page book can use a significant part of a Pro
+plan's allowance; on Max plans, or with `--model claude-sonnet-5-5` and `--no-vision`, usage
+is much more manageable.
 
-Consejos para ahorrar:
+Tips to save usage:
 
-- Usa `--estimar` antes de empezar y `--rango` para probar con pocas páginas.
-- `--sin-vision` reduce mucho la entrada; úsalo si el PDF tiene texto limpio y pocas tablas.
-- `--modelo claude-sonnet-5-5` y/o `--esfuerzo medium` para libros sencillos.
-- Si alcanzas el límite de uso, espera a que se renueve y relanza: la conversión se reanuda.
+- Use `--estimate` before starting and `--pages` to try a few pages first.
+- `--no-vision` greatly reduces input; use it if the PDF has clean text and few tables.
+- `--model claude-sonnet-5-5` and/or `--effort medium` for simple books.
+- If you hit the usage limit, wait for it to reset and run again: the conversion resumes.
 
-## Motor alternativo: API de Anthropic
+## Alternative engine: Anthropic API
 
-Si prefieres no usar Claude Code (por ejemplo, en un servidor), puedes usar la API de
-Anthropic con una clave de [Claude Console](https://console.anthropic.com/). En ese caso
-se factura por tokens.
+If you prefer not to use Claude Code (for example, on a server), you can use the Anthropic
+API with a key from [Claude Console](https://console.anthropic.com/). In that case you are
+billed per token.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-uv run pdftoepub libro.pdf --motor api
+uv run pdftoepub book.pdf --engine api
 ```
 
-Con este motor, si el modelo rechaza un fragmento (puede ocurrir con libros de seguridad
-informática), la API lo reintenta automáticamente con un modelo alternativo.
+With this engine, if the model refuses a fragment (which can happen with computer security
+books), the API automatically retries it with a fallback model.
 
-## Estructura del proyecto
+## Project structure
 
 ```
 pdftoepub/
 ├── src/pdftoepub/
-│   ├── __init__.py       # interfaz de línea de comandos
-│   ├── orquestador.py    # coordina el flujo, la caché y el paralelismo
-│   ├── extractor.py      # lectura del PDF (texto anotado, imágenes, diagramas)
-│   ├── agentes.py        # prompts y lógica de los agentes Analista, Maquetador y Revisor
-│   ├── verificador.py    # comprobaciones automáticas de calidad
-│   ├── ensamblador.py    # unión de bloques, resaltado y generación del EPUB
-│   └── llm.py            # motores de IA: Claude Code local y API de Anthropic
+│   ├── __init__.py     # command-line interface
+│   ├── pipeline.py     # coordinates the flow, cache and parallelism
+│   ├── extractor.py    # PDF reading (annotated text, images, diagrams)
+│   ├── agents.py       # prompts and logic of the Analyst, Layout and Reviewer agents
+│   ├── verifier.py     # automatic quality checks
+│   ├── assembler.py    # chunk merging, highlighting and EPUB generation
+│   ├── llm.py          # AI engines: local Claude Code and Anthropic API
+│   └── i18n.py         # interface messages in English and Spanish
 ├── tests/
-│   └── test_conversion.py
+│   └── test_pipeline.py
 ├── pyproject.toml
-└── README.md
+├── README.md           # English documentation
+└── README.es.md        # Spanish documentation
 ```
 
-## Desarrollo y pruebas
+## Development and tests
 
 ```bash
 uv sync
 uv run pytest
 ```
 
-Las pruebas usan un Claude simulado y un ejecutable `claude` falso, así que **no consumen
-cuota** ni necesitan conexión. Cubren el flujo completo (análisis → maquetación → revisión →
-EPUB), la caché/reanudación, la unión de bloques partidos entre páginas, el verificador y el
-motor de Claude Code.
+The tests use a fake Claude and a fake `claude` executable, so they **use no plan
+allowance** and need no network. They cover the full flow (analysis → layout → review →
+EPUB), caching/resuming, merging chunks split across pages, the verifier, the Claude Code
+engine and the interface languages.
 
-Para hacer una prueba real rápida con Claude Code: `uv run pdftoepub libro.pdf --rango 1-5`.
+For a quick real test with Claude Code: `uv run pdftoepub book.pdf --pages 1-5`.
 
-## Limitaciones
+To add a new interface message, add its key with both `en` and `es` texts to
+`MESSAGES` in `i18n.py` (a test checks that every message has both languages).
 
-- **Fórmulas matemáticas** complejas se transcriben como texto; no se genera MathML.
-- **Diagramas vectoriales** se convierten en imágenes PNG (no se mantienen como vectores).
-- **Maquetaciones muy complejas** (revistas, varias columnas con recuadros flotantes) pueden
-  requerir revisar `perfil.json` o reducir `--paginas-por-bloque`.
-- Los **números de página** del original desaparecen; las referencias tipo "véase la página 42"
-  se conservan como texto.
-- PDF protegidos con contraseña no están soportados.
-- El libro se mantiene en su idioma original (no traduce).
+## Limitations
 
-## Solución de problemas
+- Complex **math formulas** are transcribed as text; no MathML is generated.
+- **Vector diagrams** become PNG images (they are not kept as vectors).
+- **Very complex layouts** (magazines, multiple columns with floating boxes) may require
+  reviewing `profile.json` or lowering `--pages-per-chunk`.
+- The original's **page numbers** disappear; references like "see page 42" are kept as text.
+- Password-protected PDFs are not supported.
+- The book keeps its original language (no translation).
 
-| Problema | Solución |
+## Troubleshooting
+
+| Problem | Solution |
 |---|---|
-| `No se encuentra el comando claude` | Instala Claude Code y comprueba que `claude` está en tu `PATH`. |
-| `Claude Code devolvió un error` / pide iniciar sesión | Ejecuta `claude` en una terminal e inicia sesión; prueba `claude -p "hola"`. |
-| Se para por límite de uso | Espera a que se renueve la cuota y relanza el mismo comando: se reanuda. |
-| Capítulos mal divididos | Edita `libro.trabajo/perfil.json`, borra `bloques/` y relanza. |
-| Un bloque se ve mal | Borra su archivo en `libro.trabajo/bloques/` y relanza, quizá con `--paginas-por-bloque 3`. |
-| `quedan avisos tras N revisiones` | El bloque se incluye igualmente; revísalo en el EPUB o regenéralo con más `--revisiones`. |
-| Páginas escaneadas vacías | No uses `--sin-vision`: esas páginas se leen desde la imagen. |
+| `The claude command was not found` | Install Claude Code and make sure `claude` is on your `PATH`. |
+| `Claude Code returned an error` / asks you to log in | Run `claude` in a terminal and log in; try `claude -p "hello"`. |
+| Stops because of the usage limit | Wait for the allowance to reset and run the same command again: it resumes. |
+| Chapters split wrongly | Edit `book.work/profile.json`, delete `chunks/` and run again. |
+| A chunk looks wrong | Delete its file in `book.work/chunks/` and run again, maybe with `--pages-per-chunk 3`. |
+| `warnings remain after N reviews` | The chunk is included anyway; check it in the EPUB or regenerate it with more `--reviews`. |
+| Scanned pages are empty | Don't use `--no-vision`: those pages are read from the image. |
 
-## Privacidad y derechos de autor
+## Privacy and copyright
 
-- El contenido del PDF (texto e imágenes de las páginas) se envía a Anthropic para que
-  Claude lo procese, igual que cualquier conversación con Claude Code. No conviertas
-  documentos que no puedas compartir con un servicio externo.
-- Usa esta herramienta solo con libros que tengas derecho a convertir (por ejemplo, para
-  leer en tu propio lector un libro que has comprado). No distribuyas los EPUB generados
-  de obras protegidas.
+- The PDF's content (text and page images) is sent to Anthropic so Claude can process it,
+  just like any Claude Code conversation. Don't convert documents you can't share with an
+  external service.
+- Only use this tool with books you have the right to convert (for example, to read a book
+  you bought on your own e-reader). Don't distribute EPUBs generated from copyrighted works.
 
-## Licencia
+## License
 
-Distribuido bajo la licencia [MIT](LICENSE).
+Distributed under the [MIT](LICENSE) license.

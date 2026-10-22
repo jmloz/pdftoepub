@@ -1,4 +1,4 @@
-"""pdftoepub: convierte libros PDF (especialmente técnicos) a EPUB con agentes de IA."""
+"""pdftoepub: convert PDF books (especially technical ones) to EPUB with AI agents."""
 
 from __future__ import annotations
 
@@ -6,67 +6,67 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import i18n
+from .i18n import t
 
-def _rango(texto: str) -> tuple[int, int]:
-    a, _, b = texto.partition("-")
+
+def _page_range(text: str) -> tuple[int, int]:
+    a, _, b = text.partition("-")
     return int(a), int(b or a)
 
 
 def main() -> None:
-    from .llm import MODELO_POR_DEFECTO, MOTORES, PRECIOS, ErrorMotor
-    from .orquestador import Conversor, Opciones, estimar
+    i18n.set_language(i18n.detect(sys.argv[1:]))
 
-    ap = argparse.ArgumentParser(
-        prog="pdftoepub",
-        description="Convierte un libro PDF en un EPUB limpio y coherente usando agentes de IA (Claude).",
-    )
-    ap.add_argument("pdf", type=Path, help="libro PDF de entrada")
-    ap.add_argument("-o", "--salida", type=Path, help="EPUB de salida (por defecto, junto al PDF)")
-    ap.add_argument("--motor", default="claude-code", choices=list(MOTORES),
-                    help="claude-code: usa tu Claude Code local (por defecto); api: usa ANTHROPIC_API_KEY")
-    ap.add_argument("--modelo", default=MODELO_POR_DEFECTO, help=f"modelo de Claude (por defecto {MODELO_POR_DEFECTO})")
-    ap.add_argument("--esfuerzo", default="high", choices=["low", "medium", "high", "xhigh", "max"],
-                    help="profundidad de razonamiento de los agentes (por defecto high)")
-    ap.add_argument("--paginas-por-bloque", type=int, default=6, help="páginas que procesa el agente en cada llamada")
-    ap.add_argument("--paralelo", type=int, default=3, help="capítulos convertidos en paralelo")
-    ap.add_argument("--revisiones", type=int, default=2, help="máximo de rondas del agente Revisor por bloque")
-    ap.add_argument("--rango", type=_rango, help="convertir solo un rango de páginas, p. ej. 1-40")
-    ap.add_argument("--sin-vision", action="store_true",
-                    help="no enviar las páginas como PDF al modelo (más barato, peor con tablas y escaneos)")
-    ap.add_argument("--sin-resaltado", action="store_true", help="no colorear la sintaxis del código")
-    ap.add_argument("--sin-ia", action="store_true", help="conversión básica sin IA (para probar)")
-    ap.add_argument("--estimar", action="store_true", help="solo estimar el consumo de tokens y salir")
+    from .llm import DEFAULT_MODEL, ENGINES, PRICES, EngineError
+    from .pipeline import Converter, Options, estimate
+
+    ap = argparse.ArgumentParser(prog="pdftoepub", description=t("cli.description"))
+    ap.add_argument("pdf", type=Path, help=t("cli.pdf"))
+    ap.add_argument("-o", "--output", type=Path, help=t("cli.output"))
+    ap.add_argument("--engine", default="claude-code", choices=list(ENGINES), help=t("cli.engine"))
+    ap.add_argument("--model", default=DEFAULT_MODEL, help=t("cli.model", model=DEFAULT_MODEL))
+    ap.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"], help=t("cli.effort"))
+    ap.add_argument("--pages-per-chunk", type=int, default=6, help=t("cli.pages_per_chunk"))
+    ap.add_argument("--parallel", type=int, default=3, help=t("cli.parallel"))
+    ap.add_argument("--reviews", type=int, default=2, help=t("cli.reviews"))
+    ap.add_argument("--pages", type=_page_range, help=t("cli.pages"))
+    ap.add_argument("--no-vision", action="store_true", help=t("cli.no_vision"))
+    ap.add_argument("--no-highlight", action="store_true", help=t("cli.no_highlight"))
+    ap.add_argument("--no-ai", action="store_true", help=t("cli.no_ai"))
+    ap.add_argument("--estimate", action="store_true", help=t("cli.estimate"))
+    ap.add_argument("--lang", choices=i18n.LANGUAGES, help=t("cli.lang"))
     args = ap.parse_args()
 
     if not args.pdf.is_file():
-        ap.error(f"no existe el archivo {args.pdf}")
-    salida = args.salida or args.pdf.with_suffix(".epub")
-    opciones = Opciones(
-        paginas_por_bloque=args.paginas_por_bloque,
-        vision=not args.sin_vision,
-        paralelo=args.paralelo,
-        revisiones=args.revisiones,
-        resaltar=not args.sin_resaltado,
-        sin_ia=args.sin_ia,
-        rango=args.rango,
+        ap.error(t("cli.file_missing", path=args.pdf))
+    output = args.output or args.pdf.with_suffix(".epub")
+    options = Options(
+        pages_per_chunk=args.pages_per_chunk,
+        vision=not args.no_vision,
+        parallel=args.parallel,
+        reviews=args.reviews,
+        syntax_highlight=not args.no_highlight,
+        page_range=args.pages,
     )
 
-    if args.estimar:
-        print(estimar(args.pdf, opciones))
-        if args.modelo in PRECIOS:
-            print(f"Precio de {args.modelo}: {PRECIOS[args.modelo][0]} / {PRECIOS[args.modelo][1]} USD por M de tokens (entrada/salida)")
+    if args.estimate:
+        print(estimate(args.pdf, options))
+        if args.model in PRICES:
+            pin, pout = PRICES[args.model]
+            print(t("run.price", model=args.model, pin=pin, pout=pout))
         return
 
-    claude = None
-    if not args.sin_ia:
+    engine = None
+    if not args.no_ai:
         try:
-            claude = MOTORES[args.motor](args.modelo, args.esfuerzo)
-        except ErrorMotor as e:
+            engine = ENGINES[args.engine](args.model, args.effort)
+        except EngineError as e:
             sys.exit(str(e))
 
     try:
-        Conversor(args.pdf, salida, opciones, claude).ejecutar()
+        Converter(args.pdf, output, options, engine).run()
     except KeyboardInterrupt:
-        sys.exit("\nInterrumpido. Vuelve a lanzar el mismo comando para reanudar.")
-    except ErrorMotor as e:
-        sys.exit(f"{e}\nEl trabajo hecho está guardado: relanza el comando para reanudar.")
+        sys.exit(t("run.interrupted"))
+    except EngineError as e:
+        sys.exit(t("run.saved", error=e))

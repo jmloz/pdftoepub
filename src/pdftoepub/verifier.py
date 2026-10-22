@@ -1,0 +1,99 @@
+"""Deterministic quality checks on every converted chunk.
+
+If something fails, the chunk goes to the Reviewer agent together with the list of problems.
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from lxml import etree, html
+
+from .agents import CONTINUES_MARK
+from .extractor import CODE_MARK, Page
+
+XHTML_NS = "http://www.w3.org/1999/xhtml"
+COVERAGE_THRESHOLD = 0.93
+MAX_MISSING_CODE = 0.03
+
+_WORD = re.compile(r"\w{3,}", re.UNICODE)
+_EQUIVALENTS = str.maketrans({"“": '"', "”": '"', "„": '"', "‘": "'", "’": "'", "–": "-", "—": "-", "−": "-", " ": " "})
+
+
+def normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text.translate(_EQUIVALENTS)).strip()
+
+
+def _source_text(pages: list[Page]) -> str:
+    text = "\n".join(p.text for p in pages)
+    text = re.sub(r"^\[H[\d.]+\] ", "", text, flags=re.M)
+    text = text.replace("**", "").replace(CODE_MARK, "")
+    return re.sub(r"(\w)-\n(\w)", r"\1\2", text)  # rejoin words hyphenated at line end
+
+
+def parse(fragment: str) -> etree._Element:
+    """Strictly parse an XHTML fragment. Raises etree.XMLSyntaxError if malformed."""
+    fragment = fragment.replace(CONTINUES_MARK, "")
+    return etree.fromstring(f'<div xmlns="{XHTML_NS}">{_html_entities(fragment)}</div>'.encode())
+
+
+def repair(fragment: str) -> etree._Element:
+    """Last resort: the lenient HTML parser repairs broken markup."""
+    tree = html.fragment_fromstring(fragment.replace(CONTINUES_MARK, ""), create_parent="div")
+    xml = etree.tostring(tree, method="xml", encoding="unicode")
+    xml = re.sub(r"^<div>", f'<div xmlns="{XHTML_NS}">', xml)
+    return etree.fromstring(xml.encode())
+
+
+_ENTITIES = {"nbsp": "#160", "mdash": "#8212", "ndash": "#8211", "hellip": "#8230", "copy": "#169",
+             "reg": "#174", "trade": "#8482", "laquo": "#171", "raquo": "#187", "rarr": "#8594",
+             "larr": "#8592", "times": "#215", "deg": "#176", "bull": "#8226", "middot": "#183"}
+
+
+def _html_entities(text: str) -> str:
+    """Translate named HTML entities (invalid in XML) into numeric ones."""
+    return re.sub(r"&([a-zA-Z]+);", lambda m: f"&{_ENTITIES[m.group(1)]};" if m.group(1) in _ENTITIES else m.group(0), text)
+
+
+def check(fragment: str, pages: list[Page], asset_ids: set[str]) -> list[str]:
+    problems: list[str] = []
+    try:
+        tree = parse(fragment)
+    except etree.XMLSyntaxError as e:
+        return [f"Malformed XHTML: {e}"]
+
+    output = normalize("".join(tree.itertext()))
+
+    # Text coverage: are (almost) all of the original's words present?
+    text_pages = [p for p in pages if not p.no_text]
+    if text_pages:
+        source = Counter(w.lower() for w in _WORD.findall(_source_text(text_pages)))
+        target = Counter(w.lower() for w in _WORD.findall(output))
+        total = sum(source.values())
+        if total:
+            covered = sum(min(n, target[w]) for w, n in source.items())
+            coverage = covered / total
+            if coverage < COVERAGE_THRESHOLD:
+                missing = [w for w, n in source.most_common() if target[w] < n][:40]
+                problems.append(
+                    f"Only {coverage:.0%} of the original's words appear in the XHTML "
+                    f"({COVERAGE_THRESHOLD:.0%} required). Missing or under-represented words: "
+                    + ", ".join(missing)
+                )
+
+    # Code: every monospaced line of the original must be in the output.
+    code_lines = [normalize(l) for p in pages for l in p.code_lines if len(l.strip()) > 3]
+    if code_lines:
+        lost = [l for l in code_lines if l not in output]
+        if len(lost) > max(2, len(code_lines) * MAX_MISSING_CODE):
+            sample = "\n".join(f"    {l}" for l in lost[:20])
+            problems.append(f"{len(lost)} of {len(code_lines)} code lines are missing or altered. Examples:\n{sample}")
+
+    # Images: only IDs of existing assets.
+    for img in tree.iter(f"{{{XHTML_NS}}}img"):
+        src = img.get("src", "")
+        if src not in asset_ids:
+            problems.append(f'<img src="{src}"> does not match any available asset.')
+
+    return problems

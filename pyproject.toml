@@ -1,7 +1,7 @@
 [project]
 name = "pdftoepub"
 version = "0.1.0"
-description = "Convierte libros PDF (sobre todo técnicos) a EPUB con agentes de IA"
+description = "Convert PDF books (especially technical ones) to faithful, readable EPUBs with AI agents"
 readme = "README.md"
 authors = [
     { name = "jmloz", email = "jmlozhc@gmail.com" }
