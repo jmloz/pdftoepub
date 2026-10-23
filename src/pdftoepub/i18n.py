@@ -16,7 +16,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "Convert a PDF book into a clean, faithful EPUB using AI agents (Claude).",
         "es": "Convierte un libro PDF en un EPUB limpio y fiel usando agentes de IA (Claude).",
     },
-    "cli.pdf": {"en": "input PDF book", "es": "libro PDF de entrada"},
+    "cli.pdf": {"en": "input PDF book (or EPUB to translate)", "es": "libro PDF de entrada (o EPUB a traducir)"},
     "cli.output": {"en": "output EPUB (default: next to the PDF)", "es": "EPUB de salida (por defecto, junto al PDF)"},
     "cli.engine": {
         "en": "claude-code: use your local Claude Code (default); api: use ANTHROPIC_API_KEY",
@@ -117,9 +117,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "es": "[Páginas {a}–{b}: conversión básica sin IA]",
     },
     "run.progress": {
-        "en": "  [{done}/{total} chunks · {percent}%{eta}] pages {a}-{b}",
-        "es": "  [{done}/{total} bloques · {percent}%{eta}] págs. {a}-{b}",
+        "en": "  [{done}/{total} chunks · {percent}%{eta}] {label}",
+        "es": "  [{done}/{total} bloques · {percent}%{eta}] {label}",
     },
+    "run.pages_label": {"en": "pages {a}-{b}", "es": "págs. {a}-{b}"},
     "run.eta": {"en": " · ~{time} left", "es": " · quedan ~{time}"},
     "run.resuming": {
         "en": "  Resuming: {done} of {total} chunks were already done.",
@@ -223,6 +224,51 @@ MESSAGES: dict[str, dict[str, str]] = {
     "cli.yes": {
         "en": "don't ask: use the recommended model directly",
         "es": "no preguntar: usar directamente el modelo recomendado",
+    },
+    # --- Translation --------------------------------------------------------
+    "tr.glossary": {
+        "en": "· Glossary agent ({engine}): preparing terminology and title…",
+        "es": "· Agente Glosario ({engine}): preparando terminología y título…",
+    },
+    "tr.start": {
+        "en": "· Translator agent: {name} → {target} ({docs} documents, {chunks} chunks)…",
+        "es": "· Agente Traductor: {name} → {target} ({docs} documentos, {chunks} bloques)…",
+    },
+    "tr.label": {"en": "{doc} part {n}", "es": "{doc} parte {n}"},
+    "tr.retry": {
+        "en": "  · Translator agent fixing {doc} part {n}: {problem}",
+        "es": "  · Agente Traductor corrigiendo {doc} parte {n}: {problem}",
+    },
+    "tr.kept": {
+        "en": "  ! {doc} part {n}: could not be translated reliably ({problem}); original text kept.",
+        "es": "  ! {doc} parte {n}: no se pudo traducir con fiabilidad ({problem}); se mantiene el texto original.",
+    },
+    "tr.labels": {
+        "en": "· Translating the title and table of contents…",
+        "es": "· Traduciendo el título y el índice…",
+    },
+    "tr.done": {"en": "✔ Translated EPUB: {path}", "es": "✔ EPUB traducido: {path}"},
+    "tr.estimate": {
+        "en": "{docs} documents · ~{input:.2f} M input tokens · ~{output:.2f} M output tokens (excluding retries)",
+        "es": "{docs} documentos · ~{input:.2f} M tokens de entrada · ~{output:.2f} M de salida (sin contar reintentos)",
+    },
+    "tr.model": {
+        "en": "· Model: {model} (recommended for translation; use --model to change it)",
+        "es": "· Modelo: {model} (recomendado para traducir; usa --model para cambiarlo)",
+    },
+    "tr.need_ai": {
+        "en": "Translation needs AI: remove --no-ai.",
+        "es": "La traducción necesita IA: quita --no-ai.",
+    },
+    "tr.need_target": {
+        "en": "To process an EPUB, say which language to translate it into, e.g. --translate es",
+        "es": "Para procesar un EPUB indica a qué idioma traducirlo, p. ej. --translate es",
+    },
+    "cli.translate": {
+        "en": "translate the EPUB into this language (e.g. es, en, fr, de, pt). The input can be a PDF "
+              "(converted first) or an EPUB",
+        "es": "traducir el EPUB a este idioma (p. ej. es, en, fr, de, pt). La entrada puede ser un PDF "
+              "(se convierte primero) o un EPUB",
     },
     "run.assembling": {"en": "· Assembling EPUB…", "es": "· Ensamblando EPUB…"},
     "run.done": {"en": "✔ EPUB created: {path}", "es": "✔ EPUB generado: {path}"},

@@ -389,3 +389,136 @@ def test_conversion_saves_the_model(tmp_path):
     engine = FakeEngine()
     Converter(pdf, tmp_path / "book.epub", Options(), engine).run()
     assert analysis.saved_model(tmp_path / "book.work") == "fake"
+
+
+# ---------------------------------------------------------------------------
+# EPUB translation
+# ---------------------------------------------------------------------------
+
+from lxml import etree  # noqa: E402
+
+from pdftoepub import translator  # noqa: E402
+
+CODE = 'for f in *.txt; do\n    echo "$f" &gt;&gt; list.log\ndone'
+
+
+def make_epub(tmp_path: Path) -> Path:
+    (tmp_path / "images").mkdir(exist_ok=True)
+    (tmp_path / "images" / "img_p1_1.png").write_bytes(b"\x89PNG fake")
+    chapters = []
+    for i, title in enumerate(["Getting started", "Files"], 1):
+        body = assembler.merge_chunks([
+            f"<h1>{title}</h1><p>The <code>ls</code> command lists the files of a directory.</p>"
+            f'<pre><code class="language-bash">{CODE}</code></pre>'
+            '<p>Energy: <math><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math></p>'
+            '<figure><img src="img_p1_1" alt="A terminal window"/><figcaption>The terminal</figcaption></figure>'
+            "<ul><li>First item of the list</li><li>Second item, with <kbd>Ctrl</kbd>+<kbd>C</kbd></li></ul>"
+        ])
+        chapters.append(assembler.prepare_chapter(title, i, body, "images", True, {"img_p1_1": "img_p1_1.png"}))
+    profile = agents.Profile("Linux Basics", ["Ann"], "en", "", "", "", [], "", [])
+    path = tmp_path / "book.epub"
+    assembler.build_epub(profile, chapters, tmp_path / "images", None, path, True)
+    return path
+
+
+class FakeTranslatorEngine:
+    model = "fake"
+    name = "fake"
+
+    def __init__(self, broken: bool = False):
+        self.calls = 0
+        self.broken = broken
+        self.usage = FakeEngine().usage
+
+    def ask_json(self, system, content, schema, **kw):
+        self.calls += 1
+        if "glossary" in schema["properties"]:
+            return {"source_language": "en", "title": "Fundamentos de Linux", "style": "Tutea al lector.",
+                    "glossary": [{"term": "command", "translation": "comando"}]}
+        strings = json.loads(content[content.index("["):])
+        return {"translations": [f"LABEL {s}" for s in strings]}  # separate wording, to tell them apart
+
+    def ask(self, system, content, **kw):
+        self.calls += 1
+        fragment = content.split("## XHTML to translate into", 1)[1].split("\n", 1)[1]
+        fragment = fragment.split("\n\n## Your previous answer", 1)[0]
+        units = translator.from_fragment(fragment)
+        for unit in units:
+            for el in unit.iter():
+                if translator._local(el.tag) in translator.LITERAL or el.get("data-keep"):
+                    continue
+                if el.text and el.text.strip():
+                    el.text = "ES " + el.text
+                if el.get("alt"):
+                    el.set("alt", "ES " + el.get("alt"))
+        if self.broken:
+            units = units[:-1]  # drops an element: the checks must reject it
+        return translator.to_fragment(units)
+
+
+def test_translate_epub(tmp_path, capsys):
+    i18n.set_language("en")
+    source = make_epub(tmp_path)
+    output = tmp_path / "book.es.epub"
+    engine = FakeTranslatorEngine()
+    translator.Translator(source, output, "es", engine).run()
+
+    with zipfile.ZipFile(output) as z:
+        assert z.namelist()[0] == "mimetype"
+        assert z.getinfo("mimetype").compress_type == zipfile.ZIP_STORED
+        ch1 = z.read("EPUB/ch001.xhtml").decode()
+        opf = z.read("EPUB/content.opf").decode()
+        ncx = z.read("EPUB/toc.ncx").decode()
+        nav = z.read("EPUB/nav.xhtml").decode()
+        assert z.read("EPUB/images/img_p1_1.png") == b"\x89PNG fake"  # other files untouched
+
+    assert "ES Getting started" in ch1 and "ES The " in ch1  # prose translated
+    assert '<code>ls</code>' in ch1 and "<kbd>Ctrl</kbd>" in ch1  # inline code untouched
+    code = "".join(etree.fromstring(ch1.encode()).find(".//{*}pre").itertext())
+    assert code == CODE.replace("&gt;", ">")  # code block restored exactly, no stray whitespace
+    assert 'xmlns="http://www.w3.org/1998/Math/MathML"' in ch1 and "<mi>E</mi>" in ch1
+    assert 'alt="ES A terminal window"' in ch1
+    assert 'lang="es"' in ch1
+    assert "<dc:language>es</dc:language>" in opf and "Fundamentos de Linux" in opf
+    assert "ES Files" in nav and "LABEL" not in ncx
+    # Table of contents entries reuse the body's heading translations: no separate wording.
+    assert "<text>ES Getting started</text>" in ncx
+
+    # Resuming: everything comes from the cache.
+    engine2 = FakeTranslatorEngine()
+    translator.Translator(source, tmp_path / "book.es.epub", "es", engine2).run()
+    assert engine2.calls == 0
+
+
+def test_translation_that_breaks_the_structure_keeps_the_original(tmp_path, capsys):
+    i18n.set_language("en")
+    source = make_epub(tmp_path)
+    output = tmp_path / "broken.es.epub"
+    translator.Translator(source, output, "es", FakeTranslatorEngine(broken=True), reviews=1).run()
+    assert "original text kept" in capsys.readouterr().err
+    with zipfile.ZipFile(output) as z:
+        ch1 = z.read("EPUB/ch001.xhtml").decode()
+    body = ch1[ch1.index("<body"):]  # the <head> title is translated separately, as a label
+    assert "<h1" in body and "Getting started" in body and "ES Getting" not in body
+
+
+def test_translation_masks_code_and_math():
+    units = translator.from_fragment(
+        '<p>Run <code>make</code></p><pre><code>make all</code></pre>'
+        '<p>So <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math></p>')
+    masked, kept = translator.mask(units)
+    fragment = translator.to_fragment(masked)
+    assert "make all" not in fragment and "<mi>" not in fragment  # never sent to the model
+    assert "<code>make</code>" in fragment  # inline code stays for context
+    restored = translator.unmask(translator.from_fragment(fragment), kept)
+    assert translator.to_fragment(restored) == translator.to_fragment(units)
+
+
+def test_translation_checks():
+    src = translator.from_fragment("<h2>Title</h2><p>Use <code>git commit</code> to save. " + "Words " * 60 + "</p>")
+    ok = translator.from_fragment("<h2>Título</h2><p>Usa <code>git commit</code> para guardar. " + "Palabras " * 60 + "</p>")
+    assert translator.check(src, ok) == []
+    altered = translator.from_fragment("<h2>Título</h2><p>Usa <code>git confirmar</code> para guardar. " + "Palabras " * 60 + "</p>")
+    assert "Inline code" in translator.check(src, altered)[0]
+    assert translator.check(src, translator.from_fragment("<h2>Título</h2>"))
+    assert "not translated" in translator.check(src, src)[0]

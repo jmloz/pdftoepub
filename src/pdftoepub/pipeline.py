@@ -88,7 +88,7 @@ class Progress:
             return None
         return (time.time() - self.started) / self.converted * (self.total - self.done)
 
-    def advance(self, cached: bool, a: int, b: int) -> None:
+    def advance(self, cached: bool, label: str) -> None:
         with self._lock:
             self.done += 1
             if not cached:
@@ -96,7 +96,7 @@ class Progress:
             self._save(finished=False)
             eta = self.eta()
             log(t("run.progress", done=self.done, total=self.total, percent=self.done * 100 // self.total,
-                  eta=t("run.eta", time=format_duration(eta)) if eta is not None else "", a=a, b=b))
+                  eta=t("run.eta", time=format_duration(eta)) if eta is not None else "", label=label))
 
     def finish(self) -> None:
         with self._lock:
@@ -182,7 +182,7 @@ class Converter:
             cached = self._cache_path(i, chunk).exists()
             fragments.extend(self._convert_chunk(i, chapter, chunk, profile, fragments, chunk[0].number == chapter.start))
             if self.progress:
-                self.progress.advance(cached, chunk[0].number, chunk[-1].number)
+                self.progress.advance(cached, t("run.pages_label", a=chunk[0].number, b=chunk[-1].number))
         log(t("run.chapter_done", i=i, title=chapter.title))
         return fragments
 
@@ -293,16 +293,20 @@ class Converter:
             self._report_usage()
 
     def _report_usage(self) -> None:
-        u = self.engine.usage
-        cost = u.cost(self.engine.model)
-        if cost is None:
-            cost_text = ""
-        elif isinstance(self.engine, ClaudeCode):
-            cost_text = t("run.cost_plan", cost=cost)
-        else:
-            cost_text = t("run.cost_api", cost=cost)
-        log(t("run.usage", calls=u.calls, engine=self.engine.name, input=u.input,
-              cached=u.cache_read, output=u.output, cost=cost_text))
+        report_usage(self.engine)
+
+
+def report_usage(engine: Engine) -> None:
+    u = engine.usage
+    cost = u.cost(engine.model)
+    if cost is None:
+        cost_text = ""
+    elif isinstance(engine, ClaudeCode):
+        cost_text = t("run.cost_plan", cost=cost)
+    else:
+        cost_text = t("run.cost_api", cost=cost)
+    log(t("run.usage", calls=u.calls, engine=engine.name, input=u.input,
+          cached=u.cache_read, output=u.output, cost=cost_text))
 
 
 def estimate(pdf: Path, options: Options) -> str:

@@ -29,6 +29,7 @@ e-book reader.
 - [How it works](#how-it-works)
 - [Example output](#example-output)
 - [Resuming and fixing a conversion](#resuming-and-fixing-a-conversion)
+- [Translating EPUBs](#translating-epubs)
 - [Choosing the model](#choosing-the-model)
 - [Usage and costs](#usage-and-costs)
 - [Alternative engine: Anthropic API](#alternative-engine-anthropic-api)
@@ -75,7 +76,9 @@ plus automatic checks that make sure no content is lost.
 - 📚 **Complete EPUB 3**: cover, metadata, navigable table of contents with chapters and sections,
   images and diagrams, and a stylesheet designed for e-readers (long code wraps instead of being cut).
 - ♻️ **Resumable**: everything is saved in a work folder; if interrupted, it continues where it stopped.
-- 🌍 **English or Spanish interface**; the book always keeps its original language.
+- 🌐 **Translation**: translate the result (or any EPUB) into another language, with a consistent
+  terminology glossary and the code left untouched.
+- 🌍 **English or Spanish interface**.
 - ⚙️ **Tunable**: model, effort level, chunk size, parallelism, page range…
 
 ## Requirements
@@ -151,6 +154,12 @@ uv run pdftoepub book.pdf --model claude-opus-5-5 --effort xhigh --pages-per-chu
 # Basic conversion without AI (does not need Claude Code; useful for testing)
 uv run pdftoepub book.pdf --no-ai
 
+# Convert and translate into Spanish (creates book.epub and book.es.epub)
+uv run pdftoepub book.pdf --translate es
+
+# Translate an EPUB you already have (creates other-book.es.epub)
+uv run pdftoepub other-book.epub --translate es
+
 # Interface in Spanish
 uv run pdftoepub book.pdf --lang es
 ```
@@ -172,6 +181,7 @@ uv run pdftoepub book.pdf --lang es
 | `--math` | `mathml` | Formulas as `mathml` (sharp, scalable, searchable) or `image` (for readers without MathML, e.g. Kindle). |
 | `--diagrams` | `svg` | Vector diagrams as `svg` (sharp at any size) or `png`. |
 | `--no-ai` | — | Basic deterministic conversion, no agents. |
+| `--translate LANG` | — | Translate into this language (`es`, `en`, `fr`, `de`, `pt`…). The input can be a PDF (converted first) or an EPUB ([see below](#translating-epubs)). |
 | `--analyze` | — | Analyze the PDF, recommend a model, estimate usage and exit (no AI, free). |
 | `-y, --yes` | — | Don't ask: use the recommended model directly. |
 | `--estimate` | — | Only estimate the tokens the conversion will use. |
@@ -313,6 +323,42 @@ book.work/
 - **To regenerate a specific chunk**, delete its file in `chunks/` and run again.
 - **To start from scratch**, delete the `book.work/` folder.
 
+## Translating EPUBs
+
+`pdftoepub` can translate the EPUB it generates, or **any EPUB** you have, into another language:
+
+```bash
+uv run pdftoepub book.pdf --translate es          # convert, then translate: book.epub + book.es.epub
+uv run pdftoepub book.epub --translate es         # translate an existing EPUB: book.es.epub
+uv run pdftoepub book.epub --translate fr -o livre.epub
+uv run pdftoepub book.epub --translate es --estimate   # usage estimate, without translating
+```
+
+How it works:
+
+1. **Glossary agent.** Reads a sample of the book and fixes, for the whole translation:
+   the translated title, the **style** (e.g. addressing the reader as *tú* in Spanish, the tone)
+   and a **glossary** of technical terms, deciding which are translated and which professionals
+   keep in English (*thread*, *commit*, *framework*…). Saved in `book.es.work/glossary.json`;
+   you can edit it and run again.
+2. **Translator agent.** Translates each chunk of the book keeping its exact markup.
+   - **Code is never sent to the model**: code blocks (`<pre>`), MathML formulas and SVG are
+     replaced by placeholders before translating and restored afterwards, byte for byte.
+   - **Inline code** (`<code>`, `<kbd>`…) stays in place for context, and the checks make sure
+     it comes back unchanged, like URLs, ids and links.
+   - **Checks**: same elements and structure, same inline code and links, plausible length, and
+     really translated. If a chunk fails, the agent gets the list of problems and retries; if it
+     keeps failing, the original text of that chunk is kept and you are told.
+3. **Table of contents and metadata.** TOC entries reuse the exact translation of each heading,
+   so the index and the chapters always match. The book's title and language are updated.
+
+Everything else in the EPUB (styles, images, fonts) is copied untouched. Translations resume
+like conversions (`book.es.work/`), show progress, and work with `--status`.
+
+The default model for translating is **Sonnet**, which handles prose translation very well;
+use `--model claude-opus-5-5` if you want. The interface language (`--lang`) and the
+translation language (`--translate`) are independent.
+
 ## Choosing the model
 
 Before converting, `pdftoepub` analyzes a sample of up to 80 pages of the PDF (in under a
@@ -401,6 +447,7 @@ pdftoepub/
 │   ├── __init__.py     # command-line interface
 │   ├── pipeline.py     # coordinates the flow, cache and parallelism
 │   ├── analysis.py     # pre-conversion analysis and model recommendation
+│   ├── translator.py   # EPUB translation: Glossary and Translator agents
 │   ├── extractor.py    # PDF reading (reading order, annotated text, images, SVG diagrams, math)
 │   ├── agents.py       # prompts and logic of the Analyst, Layout and Reviewer agents
 │   ├── verifier.py     # automatic quality checks
@@ -461,7 +508,8 @@ changes the exported images.
   still require reviewing `profile.json` or lowering `--pages-per-chunk`.
 - The original's **page numbers** disappear; references like "see page 42" are kept as text.
 - Password-protected PDFs are not supported.
-- The book keeps its original language (no translation).
+- Translation keeps the text of a chunk in the original language if it can't be translated
+  reliably (you are told which ones); regenerate it by deleting its file in `book.es.work/chunks/`.
 
 ## Troubleshooting
 
@@ -476,6 +524,7 @@ changes the exported images.
 | Scanned pages are empty | Don't use `--no-vision`: those pages are read from the image. |
 | Formulas don't show on my reader (e.g. Kindle) | Convert again with `--math image`. |
 | Diagrams don't show | Convert again with `--diagrams png`. |
+| A term is translated in a way you don't like | Edit `book.es.work/glossary.json`, delete `book.es.work/chunks/` and run the translation again. |
 
 ## Privacy and copyright
 
