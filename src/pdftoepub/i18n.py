@@ -22,7 +22,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "en": "claude-code: use your local Claude Code (default); api: use ANTHROPIC_API_KEY",
         "es": "claude-code: usa tu Claude Code local (por defecto); api: usa ANTHROPIC_API_KEY",
     },
-    "cli.model": {"en": "Claude model (default {model})", "es": "modelo de Claude (por defecto {model})"},
+    "cli.model": {
+        "en": "Claude model, e.g. claude-sonnet-5-5 or claude-opus-5-5 (default: the one recommended by the analysis)",
+        "es": "modelo de Claude, p. ej. claude-sonnet-5-5 o claude-opus-5-5 (por defecto: el que recomiende el análisis)",
+    },
     "cli.effort": {
         "en": "reasoning depth of the agents (default high)",
         "es": "profundidad de razonamiento de los agentes (por defecto high)",
@@ -137,6 +140,89 @@ MESSAGES: dict[str, dict[str, str]] = {
     "cli.status": {
         "en": "show the progress of a conversion (running or interrupted) and exit",
         "es": "mostrar el progreso de una conversión (en curso o interrumpida) y salir",
+    },
+    # --- Pre-conversion analysis ------------------------------------------
+    "an.header": {
+        "en": "· Analysis of {name} ({sampled} of {pages} pages sampled):",
+        "es": "· Análisis de {name} ({sampled} de {pages} páginas muestreadas):",
+    },
+    "an.f_scanned": {"en": "Scanned pages", "es": "Páginas escaneadas"},
+    "an.f_math": {"en": "Pages with formulas", "es": "Páginas con fórmulas"},
+    "an.f_columns": {"en": "Multi-column pages", "es": "Páginas a varias columnas"},
+    "an.f_tables": {"en": "Pages with tables", "es": "Páginas con tablas"},
+    "an.f_frames": {"en": "Pages with boxes/frames", "es": "Páginas con recuadros"},
+    "an.f_code": {"en": "Pages with code", "es": "Páginas con código"},
+    "an.f_images": {"en": "Pages with images", "es": "Páginas con imágenes"},
+    "an.f_garbled": {"en": "Pages with unreadable text", "es": "Páginas con texto ilegible"},
+    "an.recommend": {
+        "en": "→ Recommended model: {model} — {label}",
+        "es": "→ Modelo recomendado: {model} — {label}",
+    },
+    "an.sonnet": {
+        "en": "practically the same result for this kind of PDF, at about half the usage",
+        "es": "prácticamente el mismo resultado para este tipo de PDF, con la mitad de consumo",
+    },
+    "an.opus": {
+        "en": "the best quality for difficult PDFs (uses about twice as much)",
+        "es": "la máxima calidad para PDF difíciles (consume aproximadamente el doble)",
+    },
+    "an.reason_scanned": {
+        "en": "{pct}% of the pages are scanned: they must be transcribed from the image",
+        "es": "el {pct}% de las páginas están escaneadas: hay que transcribirlas desde la imagen",
+    },
+    "an.reason_math": {
+        "en": "{pct}% of the pages have formulas, which must be read from the image into MathML",
+        "es": "el {pct}% de las páginas tienen fórmulas, que hay que leer de la imagen y pasar a MathML",
+    },
+    "an.reason_columns": {
+        "en": "{pct}% of the pages have several columns",
+        "es": "el {pct}% de las páginas tienen varias columnas",
+    },
+    "an.reason_tables": {
+        "en": "{pct}% of the pages have tables",
+        "es": "el {pct}% de las páginas tienen tablas",
+    },
+    "an.reason_garbled": {
+        "en": "{pct}% of the pages have unreadable extracted text",
+        "es": "el {pct}% de las páginas tienen texto extraído ilegible",
+    },
+    "an.reason_simple": {
+        "en": "clean text and a simple layout ({code}% of the pages with code)",
+        "es": "texto limpio y maquetación sencilla ({code}% de las páginas con código)",
+    },
+    "an.tip_no_vision": {
+        "en": "  Tip: clean text without tables, images or formulas: --no-vision would cut usage further.",
+        "es": "  Consejo: texto limpio sin tablas, imágenes ni fórmulas: --no-vision reduciría aún más el consumo.",
+    },
+    "an.tip_math_kindle": {
+        "en": "  Tip: if you read on Kindle, add --math image.",
+        "es": "  Consejo: si lees en Kindle, añade --math image.",
+    },
+    "an.tip_scanned": {
+        "en": "  Tip: don't use --no-vision: scanned pages are read from the image.",
+        "es": "  Consejo: no uses --no-vision: las páginas escaneadas se leen desde la imagen.",
+    },
+    "an.ask": {
+        "en": "Use {model}? [Y/n] (n = use {other}) ",
+        "es": "¿Usar {model}? [S/n] (n = usar {other}) ",
+    },
+    "an.model_recommended": {"en": "· Model: {model} (recommended)", "es": "· Modelo: {model} (recomendado)"},
+    "an.model_chosen": {"en": "· Model: {model} (your choice)", "es": "· Modelo: {model} (elegido por ti)"},
+    "an.model_resumed": {
+        "en": "· Model: {model} (the one this conversion started with; use --model to change it)",
+        "es": "· Modelo: {model} (con el que empezó esta conversión; usa --model para cambiarlo)",
+    },
+    "an.model_differs": {
+        "en": "  Note: the analysis recommends {model} for this PDF.",
+        "es": "  Nota: el análisis recomienda {model} para este PDF.",
+    },
+    "cli.analyze": {
+        "en": "analyze the PDF, recommend a model and exit (no AI, no usage)",
+        "es": "analizar el PDF, recomendar un modelo y salir (sin IA, no consume)",
+    },
+    "cli.yes": {
+        "en": "don't ask: use the recommended model directly",
+        "es": "no preguntar: usar directamente el modelo recomendado",
     },
     "run.assembling": {"en": "· Assembling EPUB…", "es": "· Ensamblando EPUB…"},
     "run.done": {"en": "✔ EPUB created: {path}", "es": "✔ EPUB generado: {path}"},

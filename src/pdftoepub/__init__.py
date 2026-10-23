@@ -18,14 +18,15 @@ def _page_range(text: str) -> tuple[int, int]:
 def main() -> None:
     i18n.set_language(i18n.detect(sys.argv[1:]))
 
-    from .llm import DEFAULT_MODEL, ENGINES, PRICES, EngineError
+    from .analysis import analyze, choose_model, format_report
+    from .llm import ENGINES, PRICES, EngineError
     from .pipeline import Converter, Options, estimate, read_status
 
     ap = argparse.ArgumentParser(prog="pdftoepub", description=t("cli.description"))
     ap.add_argument("pdf", type=Path, help=t("cli.pdf"))
     ap.add_argument("-o", "--output", type=Path, help=t("cli.output"))
     ap.add_argument("--engine", default="claude-code", choices=list(ENGINES), help=t("cli.engine"))
-    ap.add_argument("--model", default=DEFAULT_MODEL, help=t("cli.model", model=DEFAULT_MODEL))
+    ap.add_argument("--model", help=t("cli.model"))
     ap.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"], help=t("cli.effort"))
     ap.add_argument("--pages-per-chunk", type=int, default=6, help=t("cli.pages_per_chunk"))
     ap.add_argument("--parallel", type=int, default=3, help=t("cli.parallel"))
@@ -38,6 +39,8 @@ def main() -> None:
     ap.add_argument("--no-ai", action="store_true", help=t("cli.no_ai"))
     ap.add_argument("--estimate", action="store_true", help=t("cli.estimate"))
     ap.add_argument("--status", action="store_true", help=t("cli.status"))
+    ap.add_argument("--analyze", action="store_true", help=t("cli.analyze"))
+    ap.add_argument("-y", "--yes", action="store_true", help=t("cli.yes"))
     ap.add_argument("--lang", choices=i18n.LANGUAGES, help=t("cli.lang"))
     args = ap.parse_args()
 
@@ -59,17 +62,24 @@ def main() -> None:
         print(read_status(output.with_suffix(".work"), args.pages_per_chunk))
         return
 
-    if args.estimate:
+    if args.analyze or args.estimate:
+        report = analyze(args.pdf, args.pages)
+        if args.analyze:
+            print(format_report(report, args.pdf.name))
         print(estimate(args.pdf, options))
-        if args.model in PRICES:
-            pin, pout = PRICES[args.model]
-            print(t("run.price", model=args.model, pin=pin, pout=pout))
+        model = args.model or report.model
+        if model in PRICES:
+            pin, pout = PRICES[model]
+            print(t("run.price", model=model, pin=pin, pout=pout))
         return
 
     engine = None
     if not args.no_ai:
+        work_dir = output.with_suffix(".work")
+        interactive = sys.stdin.isatty() and not args.yes
+        model = choose_model(args.pdf, work_dir, args.model, args.pages, interactive)
         try:
-            engine = ENGINES[args.engine](args.model, args.effort)
+            engine = ENGINES[args.engine](model, args.effort)
         except EngineError as e:
             sys.exit(str(e))
 

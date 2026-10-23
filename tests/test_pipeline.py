@@ -299,3 +299,93 @@ def test_progress_and_status(tmp_path, capsys):
     assert "Resuming: 3 of 4 chunks" in capsys.readouterr().err
 
     assert format_duration(20) == "<1m" and format_duration(600) == "10m" and format_duration(4500) == "1h 15m"
+
+
+# ---------------------------------------------------------------------------
+# Pre-conversion analysis and model choice
+# ---------------------------------------------------------------------------
+
+from pdftoepub import analysis  # noqa: E402
+
+
+def make_scanned_pdf(path: Path) -> None:
+    doc = pymupdf.open()
+    for _ in range(3):
+        page = doc.new_page()
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 300, 400), 0)
+        pix.clear_with(200)
+        page.insert_image(page.rect, pixmap=pix)  # an image and no text: a scan
+    doc.save(path)
+
+
+def test_analysis_recommends_sonnet_for_simple_code_books(tmp_path):
+    pdf = tmp_path / "book.pdf"
+    make_pdf(pdf)
+    report = analysis.analyze(pdf)
+    assert report.model == analysis.SONNET
+    assert report.math == report.columns == report.scanned == report.tables == 0
+    assert report.reasons[0][0] == "an.reason_simple"
+
+
+def test_analysis_recommends_opus_for_hard_pdfs(tmp_path):
+    complex_pdf, scanned_pdf = tmp_path / "complex.pdf", tmp_path / "scan.pdf"
+    make_complex_pdf(complex_pdf)
+    make_scanned_pdf(scanned_pdf)
+
+    r = analysis.analyze(complex_pdf)
+    assert r.model == analysis.OPUS
+    assert {k for k, _ in r.reasons} == {"an.reason_math", "an.reason_columns"}
+    assert ("an.tip_math_kindle", {}) in r.tips
+
+    r = analysis.analyze(scanned_pdf)
+    assert r.model == analysis.OPUS and r.scanned == 1.0
+    assert ("an.tip_scanned", {}) in r.tips
+
+
+def test_table_detection_ignores_code_boxes():
+    doc = pymupdf.open()
+    doc.new_page(), doc.new_page(), doc.new_page()
+    table, boxes, shaded = doc[0], doc[1], doc[2]
+    for i in range(5):
+        table.draw_line((72, 100 + i * 20), (400, 100 + i * 20))
+    for x in (72, 200, 300, 400):
+        table.draw_line((x, 100), (x, 180))
+    boxes.draw_rect(pymupdf.Rect(72, 100, 500, 300))
+    boxes.draw_rect(pymupdf.Rect(72, 320, 500, 400))
+    for y in (100, 200, 300):  # shaded code backgrounds plus inline-code highlights
+        shaded.draw_rect(pymupdf.Rect(28, y, 567, y + 60), color=None, fill=(0.95, 0.95, 0.95))
+        shaded.draw_rect(pymupdf.Rect(100, y + 70, 140, y + 80), color=None, fill=(0.95, 0.95, 0.95))
+    assert analysis._has_table(table)
+    assert not analysis._has_table(boxes) and not analysis._has_table(shaded)
+
+
+def test_choose_model(tmp_path):
+    i18n.set_language("en")
+    simple, hard = tmp_path / "simple.pdf", tmp_path / "hard.pdf"
+    make_pdf(simple)
+    make_complex_pdf(hard)
+    out: list[str] = []
+    work = tmp_path / "simple.work"
+
+    def choose(pdf, explicit=None, interactive=False, answer=""):
+        out.clear()
+        return analysis.choose_model(pdf, work, explicit, None, interactive,
+                                     ask=lambda prompt: answer, out=out.append)
+
+    assert choose(simple) == analysis.SONNET  # non-interactive: the recommendation
+    assert choose(hard, interactive=True, answer="") == analysis.OPUS  # Enter accepts it
+    assert choose(hard, interactive=True, answer="n") == analysis.SONNET  # "n" takes the other one
+    assert choose(simple, explicit=analysis.OPUS) == analysis.OPUS
+    assert "recommends claude-sonnet-5-5" in out[-1]  # warns that it differs
+
+    analysis.save_model(work, analysis.OPUS)  # a conversion that started with Opus…
+    assert choose(simple) == analysis.OPUS  # …resumes with Opus, without asking
+    assert choose(simple, explicit=analysis.SONNET) == analysis.SONNET  # unless --model says otherwise
+
+
+def test_conversion_saves_the_model(tmp_path):
+    pdf = tmp_path / "book.pdf"
+    make_pdf(pdf)
+    engine = FakeEngine()
+    Converter(pdf, tmp_path / "book.epub", Options(), engine).run()
+    assert analysis.saved_model(tmp_path / "book.work") == "fake"

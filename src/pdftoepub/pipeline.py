@@ -18,6 +18,7 @@ from pathlib import Path
 import pymupdf
 
 from . import agents, assembler, extractor, verifier
+from .analysis import save_model
 from .agents import Chapter, Profile
 from .extractor import Document, ExtractOptions, Page
 from .i18n import t
@@ -241,6 +242,8 @@ class Converter:
     # -- main ----------------------------------------------------------------
 
     def run(self) -> None:
+        if self.engine is not None:
+            save_model(self.work_dir, self.engine.model)  # a resumed run keeps the same model
         log(t("run.extracting", name=self.pdf.name))
         doc = extractor.extract(self.pdf, self.image_dir, self.opt.page_range,
                                 ExtractOptions(diagrams=self.opt.diagrams, math=self.opt.math))

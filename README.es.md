@@ -29,6 +29,7 @@ de libros electrónicos.
 - [Cómo funciona](#cómo-funciona)
 - [Ejemplo de resultado](#ejemplo-de-resultado)
 - [Reanudar y corregir una conversión](#reanudar-y-corregir-una-conversión)
+- [Elección del modelo](#elección-del-modelo)
 - [Consumo y costes](#consumo-y-costes)
 - [Motor alternativo: API de Anthropic](#motor-alternativo-api-de-anthropic)
 - [Estructura del proyecto](#estructura-del-proyecto)
@@ -112,8 +113,8 @@ pdftoepub --help
 ## Uso rápido
 
 ```bash
-# 1. Mira cuánto va a consumir
-uv run pdftoepub libro.pdf --estimate
+# 1. Analiza el PDF: modelo recomendado y consumo estimado (gratis, sin IA)
+uv run pdftoepub libro.pdf --analyze
 
 # 2. Prueba con las primeras páginas y revisa el resultado
 uv run pdftoepub libro.pdf --pages 1-30 -o prueba.epub
@@ -156,7 +157,7 @@ uv run pdftoepub libro.pdf --no-ai
 |---|---|---|
 | `-o, --output` | `<pdf>.epub` | Ruta del EPUB generado. |
 | `--engine` | `claude-code` | `claude-code` usa tu Claude Code local; `api` usa la API de Anthropic ([ver abajo](#motor-alternativo-api-de-anthropic)). |
-| `--model` | `claude-sonnet-5-5` | Modelo de Claude que usan los agentes. `claude-opus-5-5` da la máxima calidad pero consume aproximadamente el doble. |
+| `--model` | recomendado | Modelo de Claude que usan los agentes: `claude-sonnet-5-5` o `claude-opus-5-5`. Por defecto, el que recomiende el análisis ([ver abajo](#elección-del-modelo)). |
 | `--effort` | `high` | Profundidad de razonamiento: `low`, `medium`, `high`, `xhigh`, `max`. |
 | `--pages-per-chunk` | `6` | Páginas que procesa el Maquetador en cada llamada. Menos páginas = más precisión y más llamadas. |
 | `--parallel` | `3` | Capítulos que se convierten a la vez. |
@@ -167,6 +168,8 @@ uv run pdftoepub libro.pdf --no-ai
 | `--math` | `mathml` | Fórmulas en `mathml` (nítidas, escalables y buscables) o `image` (para lectores sin MathML, p. ej. Kindle). |
 | `--diagrams` | `svg` | Diagramas vectoriales en `svg` (nítidos a cualquier tamaño) o `png`. |
 | `--no-ai` | — | Conversión básica determinista, sin agentes. |
+| `--analyze` | — | Analiza el PDF, recomienda un modelo, estima el consumo y sale (sin IA, gratis). |
+| `-y, --yes` | — | No preguntar: usa directamente el modelo recomendado. |
 | `--estimate` | — | Solo estima los tokens que consumirá la conversión. |
 | `--status` | — | Muestra el progreso de una conversión en curso o interrumpida y sale. |
 | `--lang` | auto | Idioma de la interfaz: `en` o `es` ([ver abajo](#idioma-de-la-interfaz)). |
@@ -299,6 +302,7 @@ Todo el trabajo intermedio se guarda en una carpeta junto al EPUB (`libro.work/`
 libro.work/
 ├── profile.json     # análisis del libro (metadatos y capítulos)
 ├── progress.json    # bloques hechos / total, lo usa --status
+├── settings.json    # modelo con el que empezó la conversión (se mantiene al reanudar)
 ├── chunks/         # XHTML de cada bloque ya convertido
 ├── images/         # imágenes y diagramas extraídos
 └── cover.png
@@ -310,6 +314,42 @@ libro.work/
   borra la carpeta `chunks/` y vuelve a ejecutar. El análisis no se repite.
 - **Para regenerar un bloque concreto**, borra su archivo en `chunks/` y vuelve a ejecutar.
 - **Para empezar de cero**, borra la carpeta `libro.work/`.
+
+## Elección del modelo
+
+Antes de convertir, `pdftoepub` analiza una muestra de hasta 80 páginas del PDF (en menos de
+un segundo y sin IA) y recomienda el modelo adecuado:
+
+| El PDF tiene… | Recomendación |
+|---|---|
+| Texto limpio y maquetación sencilla (la mayoría de libros de programación, Linux y comandos) | **Sonnet** (`claude-sonnet-5-5`): prácticamente el mismo resultado con la mitad de consumo |
+| ≥10 % de páginas escaneadas, ≥15 % con fórmulas, ≥20 % a varias columnas, ≥25 % con tablas o ≥5 % con texto ilegible | **Opus** (`claude-opus-5-5`): la máxima calidad para PDF difíciles |
+
+```
+· Análisis de JavaNotesForProfessionals.pdf (80 de 982 páginas muestreadas):
+  Páginas escaneadas                   1%
+  Páginas con fórmulas                 0%
+  Páginas a varias columnas            2%
+  Páginas con tablas                   0%
+  Páginas con recuadros               82%
+  Páginas con código                  90%
+  Páginas con imágenes                 5%
+  Páginas con texto ilegible           0%
+→ Modelo recomendado: claude-sonnet-5-5 — prácticamente el mismo resultado para este tipo de PDF, con la mitad de consumo
+   · texto limpio y maquetación sencilla (90% de las páginas con código)
+¿Usar claude-sonnet-5-5? [S/n] (n = usar claude-opus-5-5)
+```
+
+- **En una terminal** te pide confirmación: pulsa Enter para aceptar o `n` para usar el otro modelo.
+- **Con `--yes`** (o si no se ejecuta desde una terminal, p. ej. en un script) usa directamente la recomendación.
+- **Con `--model`** manda siempre tu elección; si el análisis recomienda otro modelo, te avisa.
+- **Al reanudar** una conversión interrumpida, mantiene el modelo con el que empezó (guardado en
+  `libro.work/settings.json`), para no convertir un libro con dos modelos sin darte cuenta. Usa
+  `--model` para cambiarlo a propósito.
+- `--analyze` muestra el informe y el consumo estimado sin convertir nada.
+
+El análisis también da consejos, como `--math image` para Kindle cuando el libro tiene fórmulas,
+o `--no-vision` cuando el texto es limpio y no tiene tablas, imágenes ni fórmulas.
 
 ## Consumo y costes
 
@@ -362,6 +402,7 @@ pdftoepub/
 ├── src/pdftoepub/
 │   ├── __init__.py     # interfaz de línea de comandos
 │   ├── pipeline.py     # coordina el flujo, la caché y el paralelismo
+│   ├── analysis.py     # análisis previo y recomendación del modelo
 │   ├── extractor.py    # lectura del PDF (orden de lectura, texto anotado, imágenes, SVG, fórmulas)
 │   ├── agents.py       # prompts y lógica de los agentes Analista, Maquetador y Revisor
 │   ├── verifier.py     # comprobaciones automáticas de calidad
