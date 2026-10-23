@@ -267,11 +267,27 @@ def basic_conversion(pages: list[Page], notice: str | None = None) -> str:
 # EPUB
 # ---------------------------------------------------------------------------
 
-def _body_html(chapter: FinalChapter) -> bytes:
-    # ebooklib generates the <head> (title, language, CSS) and keeps only the <body>.
+class _Chapter(epub.EpubHtml):
+    """An XHTML document written exactly as given.
+
+    ebooklib re-serializes chapters with pretty_print, which inserts line breaks and
+    indentation inside <pre>: the first line of every code block would be shifted.
+    """
+
+    def get_content(self, default=None):
+        return self.content
+
+
+def _document(chapter: FinalChapter, language: str) -> bytes:
     body = etree.tostring(chapter.body, encoding="unicode")
     body = re.sub(r"^<div[^>]*>|</div>$", "", body)
-    return f"<html><body>{body}</body></html>".encode()
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n'
+        f'<html xmlns="{XHTML_NS}" xmlns:epub="http://www.idpf.org/2007/ops" lang="{language}" xml:lang="{language}">\n'
+        f"<head>\n<title>{html_lib.escape(chapter.title)}</title>\n"
+        '<link href="styles/book.css" rel="stylesheet" type="text/css"/>\n</head>\n'
+        f"<body>{body}</body>\n</html>\n"
+    ).encode()
 
 
 def _toc(chapters: list[FinalChapter]) -> list:
@@ -322,8 +338,8 @@ def build_epub(
     for ch in chapters:
         for img in ch.body.iter(f"{NS}img"):
             used.add(Path(img.get("src")).name)
-        item = epub.EpubHtml(title=ch.title, file_name=ch.file, lang=profile.language)
-        item.content = _body_html(ch)
+        item = _Chapter(title=ch.title, file_name=ch.file, lang=profile.language)
+        item.content = _document(ch, profile.language or "en")
         if ch.has_math:
             item.properties.append("mathml")
         item.add_item(stylesheet)
