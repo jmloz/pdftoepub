@@ -141,11 +141,11 @@ During the conversion you will see each agent's progress:
 More examples:
 
 ```bash
-# Faster and lighter: Sonnet model, no page images
-uv run pdftoepub book.pdf --model claude-sonnet-5-5 --no-vision
+# Faster and lighter: no page images
+uv run pdftoepub book.pdf --no-vision
 
 # Maximum quality for a hard book (complex tables, lots of code)
-uv run pdftoepub book.pdf --effort xhigh --pages-per-chunk 4
+uv run pdftoepub book.pdf --model claude-opus-5-5 --effort xhigh --pages-per-chunk 4
 
 # Basic conversion without AI (does not need Claude Code; useful for testing)
 uv run pdftoepub book.pdf --no-ai
@@ -160,7 +160,7 @@ uv run pdftoepub book.pdf --lang es
 |---|---|---|
 | `-o, --output` | `<pdf>.epub` | Path of the generated EPUB. |
 | `--engine` | `claude-code` | `claude-code` uses your local Claude Code; `api` uses the Anthropic API ([see below](#alternative-engine-anthropic-api)). |
-| `--model` | `claude-opus-5-5` | Claude model used by the agents. |
+| `--model` | `claude-sonnet-5-5` | Claude model used by the agents. `claude-opus-5-5` gives the best quality but uses about twice as much. |
 | `--effort` | `high` | Reasoning depth: `low`, `medium`, `high`, `xhigh`, `max`. |
 | `--pages-per-chunk` | `6` | Pages the Layout agent processes per call. Fewer pages = more precision and more calls. |
 | `--parallel` | `3` | Chapters converted at the same time. |
@@ -329,14 +329,14 @@ It's only a reference: on a Pro/Max plan you are not charged that amount.
 
 As a rough guide, each page uses about 2,000–4,000 input tokens (text + page image) and an
 output similar to the page's text. A 400-page book can use a significant part of a Pro
-plan's allowance; on Max plans, or with `--model claude-sonnet-5-5` and `--no-vision`, usage
-is much more manageable.
+plan's allowance; on Max plans, or with `--no-vision` and `--effort medium`, usage is much
+more manageable. The default model is Sonnet; `--model claude-opus-5-5` uses about twice as much.
 
 Tips to save usage:
 
 - Use `--estimate` before starting and `--pages` to try a few pages first.
 - `--no-vision` greatly reduces input; use it if the PDF has clean text and few tables.
-- `--model claude-sonnet-5-5` and/or `--effort medium` for simple books.
+- `--effort medium` for simple books; keep `--model claude-opus-5-5` for the hardest ones.
 - If you hit the usage limit, wait for it to reset and run again: the conversion resumes.
 
 ## Alternative engine: Anthropic API

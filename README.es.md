@@ -140,11 +140,11 @@ Durante la conversión verás el progreso de cada agente:
 Más ejemplos:
 
 ```bash
-# Más rápido y con menos consumo: modelo Sonnet y sin enviar imágenes de página
-uv run pdftoepub libro.pdf --model claude-sonnet-5-5 --no-vision
+# Más rápido y con menos consumo: sin enviar imágenes de página
+uv run pdftoepub libro.pdf --no-vision
 
 # Máxima calidad para un libro difícil (tablas complejas, mucho código)
-uv run pdftoepub libro.pdf --effort xhigh --pages-per-chunk 4
+uv run pdftoepub libro.pdf --model claude-opus-5-5 --effort xhigh --pages-per-chunk 4
 
 # Conversión básica sin IA (no necesita Claude Code; útil para probar)
 uv run pdftoepub libro.pdf --no-ai
@@ -156,7 +156,7 @@ uv run pdftoepub libro.pdf --no-ai
 |---|---|---|
 | `-o, --output` | `<pdf>.epub` | Ruta del EPUB generado. |
 | `--engine` | `claude-code` | `claude-code` usa tu Claude Code local; `api` usa la API de Anthropic ([ver abajo](#motor-alternativo-api-de-anthropic)). |
-| `--model` | `claude-opus-5-5` | Modelo de Claude que usan los agentes. |
+| `--model` | `claude-sonnet-5-5` | Modelo de Claude que usan los agentes. `claude-opus-5-5` da la máxima calidad pero consume aproximadamente el doble. |
 | `--effort` | `high` | Profundidad de razonamiento: `low`, `medium`, `high`, `xhigh`, `max`. |
 | `--pages-per-chunk` | `6` | Páginas que procesa el Maquetador en cada llamada. Menos páginas = más precisión y más llamadas. |
 | `--parallel` | `3` | Capítulos que se convierten a la vez. |
@@ -331,13 +331,14 @@ Es solo una referencia: con una suscripción Pro/Max no se te cobra esa cantidad
 Orientativamente, cada página cuesta unos 2.000–4.000 tokens de entrada (texto + imagen de
 la página) y una cantidad de salida similar al texto de la página. Un libro de 400 páginas
 puede consumir una parte importante de la cuota de un plan Pro; en planes Max o con
-`--model claude-sonnet-5-5` y `--no-vision` el consumo es mucho más llevadero.
+`--no-vision` y `--effort medium` el consumo es mucho más llevadero. El modelo por defecto es
+Sonnet; `--model claude-opus-5-5` consume aproximadamente el doble.
 
 Consejos para ahorrar:
 
 - Usa `--estimate` antes de empezar y `--pages` para probar con pocas páginas.
 - `--no-vision` reduce mucho la entrada; úsalo si el PDF tiene texto limpio y pocas tablas.
-- `--model claude-sonnet-5-5` y/o `--effort medium` para libros sencillos.
+- `--effort medium` para libros sencillos; reserva `--model claude-opus-5-5` para los más difíciles.
 - Si alcanzas el límite de uso, espera a que se renueve y relanza: la conversión se reanuda.
 
 ## Motor alternativo: API de Anthropic

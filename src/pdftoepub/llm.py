@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from .i18n import t
 
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_OUTPUT_TOKENS = 64000
 TIMEOUT = 30 * 60  # seconds per call
